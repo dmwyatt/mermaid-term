@@ -19,6 +19,13 @@ from ._draw import (
 from ._model import MAX_CANVAS_CELLS, Dir, Graph, LineKind
 from ._ranks import assign_positions, compute_ranks, order_ranks
 from ._text import GAP_X, GAP_Y, MAX_LABEL, MAX_LINES, PAD, WRAP_WIDTH, fit_label, str_width, wrap_label
+from ._tracks import assign_bus_tracks, assign_lane_tracks
+
+_LINE_STYLES = {
+    LineKind.SOLID: STY_SOLID,
+    LineKind.DOTTED: STY_DOT,
+    LineKind.THICK: STY_THICK,
+}
 
 
 class OversizeError(Exception):
@@ -66,10 +73,7 @@ def layout_canvas(graph: Graph, extras: list[NodeExtra], max_width: int | None) 
 
     ranks = compute_ranks(graph)
     max_rank = max(ranks, default=0)
-
-    by_rank: list[list[int]] = [[] for _ in range(max_rank + 1)]
-    for idx, r in enumerate(ranks):
-        by_rank[r].append(idx)
+    by_rank = _rank_rows(ranks, max_rank)
     order_ranks(by_rank, graph.edges, ranks)
 
     wrapped = [wrap_label(node.label, WRAP_WIDTH, MAX_LINES) for node in graph.nodes]
@@ -79,10 +83,8 @@ def layout_canvas(graph: Graph, extras: list[NodeExtra], max_width: int | None) 
     # BT/RL reuse the TD/LR layout, then flip the finished canvas (so text
     # stays readable) into the bottom-up / right-to-left orientation.
     vertical = graph.dir in (Dir.DOWN, Dir.UP)
-    if vertical:
-        plan = place_td(ranks, max_rank, by_rank, sizes, graph, placed)
-    else:
-        plan = place_lr(ranks, max_rank, by_rank, sizes, graph, placed)
+    place = place_td if vertical else place_lr
+    plan = place(ranks, max_rank, by_rank, sizes, graph, placed)
     canvas_w, canvas_h = plan.canvas
 
     if max_width is not None and canvas_w > max_width:
@@ -91,20 +93,40 @@ def layout_canvas(graph: Graph, extras: list[NodeExtra], max_width: int | None) 
         raise OversizeError("cells")
 
     canvas = Canvas(canvas_w, canvas_h)
-    for idx in range(n):
-        extra = extras[idx]
+    _paint_nodes(canvas, graph, extras, placed, wrapped)
+    _paint_edges(canvas, graph, placed, plan, vertical)
+    canvas.finalize_mask()
+    return canvas
+
+
+def _rank_rows(ranks: list[int], max_rank: int) -> list[list[int]]:
+    by_rank: list[list[int]] = [[] for _ in range(max_rank + 1)]
+    for idx, r in enumerate(ranks):
+        by_rank[r].append(idx)
+    return by_rank
+
+
+def _paint_nodes(
+    canvas: Canvas,
+    graph: Graph,
+    extras: list[NodeExtra],
+    placed: list[Placed],
+    wrapped: list[list[str]],
+) -> None:
+    for idx, extra in enumerate(extras):
         if extra.frame is not None:
             draw_frame(canvas, placed[idx], graph.nodes[idx].label, extra.frame)
         elif extra.compartments is not None:
             draw_class_box(canvas, placed[idx], extra.compartments)
         else:
             draw_box(canvas, placed[idx], wrapped[idx], graph.nodes[idx].shape)
+
+
+def _paint_edges(
+    canvas: Canvas, graph: Graph, placed: list[Placed], plan: RoutePlan, vertical: bool
+) -> None:
     for i, edge in enumerate(graph.edges):
-        canvas.cur_style = {
-            LineKind.SOLID: STY_SOLID,
-            LineKind.DOTTED: STY_DOT,
-            LineKind.THICK: STY_THICK,
-        }[edge.line]
+        canvas.cur_style = _LINE_STYLES[edge.line]
         if edge.from_ == edge.to:
             route_self(canvas, placed[edge.from_], edge)
             continue
@@ -121,40 +143,16 @@ def layout_canvas(graph: Graph, extras: list[NodeExtra], max_width: int | None) 
         else:
             route_back_lr(canvas, from_, to, edge, lane)
 
-    canvas.finalize_mask()
-    return canvas
-
 
 def _node_sizes(graph: Graph, extras: list[NodeExtra], wrapped: list[list[str]]) -> NodeSizes:
     n = len(graph.nodes)
-    box_w: list[int] = []
-    box_h: list[int] = []
-    for i in range(n):
-        extra = extras[i]
-        if extra.frame is not None:
-            title_w = str_width(fit_label(graph.nodes[i].label, WRAP_WIDTH))
-            box_w.append(max(extra.frame.w + 2, title_w + 4))
-            box_h.append(extra.frame.h + 2)
-        elif extra.compartments is not None:
-            sections = extra.compartments
-            widest = max((str_width(l) for s in sections for l in s), default=1)
-            box_w.append(max(widest, 1) + 2 * PAD + 2)
-            filled = sum(1 for s in sections if s)
-            box_h.append(sum(len(s) for s in sections) + max(filled - 1, 0) + 2)
-        else:
-            widest = max((str_width(l) for l in wrapped[i]), default=1)
-            box_w.append(max(widest, 1) + 2 * PAD + 2)
-            box_h.append(len(wrapped[i]) + 2)
+    dims = [
+        _box_dims(graph.nodes[i].label, extras[i], wrapped[i]) for i in range(n)
+    ]
+    box_w = [w for w, _ in dims]
+    box_h = [h for _, h in dims]
 
-    extra_h = [0] * n
-    self_label_w = [0] * n
-    for e in graph.edges:
-        if e.from_ == e.to:
-            extra_h[e.from_] = 2
-            if e.label is not None:
-                self_label_w[e.from_] = max(
-                    self_label_w[e.from_], min(str_width(e.label), MAX_LABEL)
-                )
+    extra_h, self_label_w = _self_loop_extents(graph, n)
     for i in range(n):
         if extra_h[i] > 0:
             box_w[i] = max(box_w[i], 7)
@@ -166,59 +164,31 @@ def _node_sizes(graph: Graph, extras: list[NodeExtra], wrapped: list[list[str]])
     return NodeSizes(box_w, box_h, lay_w, lay_h, extra_h, self_label_w)
 
 
-def bus_spans_td(
-    graph: Graph, ranks: list[int], centers: list[int], r: int, exact: bool
-) -> list[tuple[int, int, int, int, int]]:
-    spans = []
-    for i, e in enumerate(graph.edges):
-        if exact:
-            jogs = centers[e.from_] != centers[e.to]
-        else:
-            jogs = abs(centers[e.from_] - centers[e.to]) > 1
-        if e.from_ != e.to and ranks[e.from_] == r and ranks[e.to] == r + 1 and jogs:
-            a = min(centers[e.from_], centers[e.to])
-            b = max(centers[e.from_], centers[e.to])
-            spans.append((a, b, e.from_, e.to, i))
-    return spans
+def _box_dims(label: str, extra: NodeExtra, wrapped: list[str]) -> tuple[int, int]:
+    if extra.frame is not None:
+        title_w = str_width(fit_label(label, WRAP_WIDTH))
+        return (max(extra.frame.w + 2, title_w + 4), extra.frame.h + 2)
+    if extra.compartments is not None:
+        sections = extra.compartments
+        widest = max((str_width(l) for s in sections for l in s), default=1)
+        filled = sum(1 for s in sections if s)
+        height = sum(len(s) for s in sections) + max(filled - 1, 0) + 2
+        return (max(widest, 1) + 2 * PAD + 2, height)
+    widest = max((str_width(l) for l in wrapped), default=1)
+    return (max(widest, 1) + 2 * PAD + 2, len(wrapped) + 2)
 
 
-def lane_spans(
-    graph: Graph, ranks: list[int], placed: list[Placed], vertical: bool
-) -> list[tuple[int, int, int, int, int]]:
-    spans = []
-    for i, e in enumerate(graph.edges):
-        if e.from_ == e.to or ranks[e.to] == ranks[e.from_] + 1:
-            continue
-        pf, pt = placed[e.from_], placed[e.to]
-        if vertical:
-            a, b = min(pf.cy, pt.cy), max(pf.cy, pt.cy)
-        else:
-            a, b = min(pf.cx, pt.cx), max(pf.cx, pt.cx)
-        spans.append((a, b, e.from_, e.to, i))
-    return spans
-
-
-def assign_tracks(
-    spans: list[tuple[int, int, int, int, int]],
-) -> tuple[list[tuple[int, int]], int]:
-    sorted_spans = sorted(spans)
-    tracks: list[list[tuple[int, int, int, int]]] = []
-    out: list[tuple[int, int]] = []
-    for s, e, f, t, idx in sorted_spans:
-        slot = None
-        for x, members in enumerate(tracks):
-            if all(
-                e2 + 2 <= s or e + 2 <= s2 or f2 == f or t2 == t
-                for s2, e2, f2, t2 in members
-            ):
-                slot = x
-                break
-        if slot is None:
-            tracks.append([])
-            slot = len(tracks) - 1
-        tracks[slot].append((s, e, f, t))
-        out.append((idx, slot))
-    return (out, len(tracks))
+def _self_loop_extents(graph: Graph, n: int) -> tuple[list[int], list[int]]:
+    extra_h = [0] * n
+    self_label_w = [0] * n
+    for e in graph.edges:
+        if e.from_ == e.to:
+            extra_h[e.from_] = 2
+            if e.label is not None:
+                self_label_w[e.from_] = max(
+                    self_label_w[e.from_], min(str_width(e.label), MAX_LABEL)
+                )
+    return extra_h, self_label_w
 
 
 def place_td(
@@ -230,17 +200,7 @@ def place_td(
     placed: list[Placed],
 ) -> RoutePlan:
     centers = assign_positions(by_rank, sizes.lay_w, GAP_X, graph.edges, ranks)
-
-    edge_bus = [0] * len(graph.edges)
-    bus_tracks = [0] * (max_rank + 1)
-    for r in range(max_rank):
-        spans = bus_spans_td(graph, ranks, centers, r, False)
-        if not spans:
-            continue
-        assigned, count = assign_tracks(spans)
-        for idx, slot in assigned:
-            edge_bus[idx] = slot
-        bus_tracks[r] = count
+    edge_bus, bus_tracks = assign_bus_tracks(graph, ranks, centers, max_rank, False)
 
     rank_h = [
         max((sizes.box_h[i] + sizes.extra_h[i] for i in row), default=3)
@@ -253,6 +213,22 @@ def place_td(
     canvas_h = rank_y[max_rank] + rank_h[max_rank]
     band_end = [rank_y[r] + rank_h[r] for r in range(max_rank + 1)]
 
+    diagram_w = _place_td_nodes(by_rank, sizes, centers, rank_y, rank_h, placed)
+    content_w = _td_content_width(graph, ranks, placed, diagram_w)
+    edge_lane, canvas_w, lane_base = assign_lane_tracks(
+        graph, ranks, placed, True, content_w
+    )
+    return RoutePlan((canvas_w, canvas_h), band_end, edge_bus, lane_base, edge_lane)
+
+
+def _place_td_nodes(
+    by_rank: list[list[int]],
+    sizes: NodeSizes,
+    centers: list[int],
+    rank_y: list[int],
+    rank_h: list[int],
+    placed: list[Placed],
+) -> int:
     diagram_w = 1
     for r, row in enumerate(by_rank):
         for idx in row:
@@ -265,29 +241,22 @@ def place_td(
             diagram_w = max(diagram_w, x + w)
             if sizes.extra_h[idx] > 0 and sizes.self_label_w[idx] > 0:
                 diagram_w = max(diagram_w, x + w + 2 + sizes.self_label_w[idx])
+    return diagram_w
 
+
+def _td_content_width(
+    graph: Graph, ranks: list[int], placed: list[Placed], diagram_w: int
+) -> int:
     content_w = diagram_w
     for e in graph.edges:
-        if e.from_ == e.to:
+        if e.from_ == e.to or e.label is None:
             continue
-        if e.label is not None:
-            lw = min(str_width(e.label), MAX_LABEL)
-            if ranks[e.to] == ranks[e.from_] + 1:
-                content_w = max(content_w, placed[e.to].cx + 2 + lw)
-            else:
-                content_w = max(content_w, diagram_w + lw + 1)
-
-    edge_lane = [0] * len(graph.edges)
-    lanes = lane_spans(graph, ranks, placed, True)
-    if not lanes:
-        canvas_w, lane_base = content_w, 0
-    else:
-        assigned, count = assign_tracks(lanes)
-        for idx, slot in assigned:
-            edge_lane[idx] = slot
-        canvas_w, lane_base = content_w + 1 + count, content_w + 1
-
-    return RoutePlan((canvas_w, canvas_h), band_end, edge_bus, lane_base, edge_lane)
+        lw = min(str_width(e.label), MAX_LABEL)
+        if ranks[e.to] == ranks[e.from_] + 1:
+            content_w = max(content_w, placed[e.to].cx + 2 + lw)
+        else:
+            content_w = max(content_w, diagram_w + lw + 1)
+    return content_w
 
 
 def place_lr(
@@ -299,8 +268,29 @@ def place_lr(
     placed: list[Placed],
 ) -> RoutePlan:
     col_w = [max((sizes.box_w[i] for i in row), default=0) for row in by_rank]
+    base_gap = max(GAP_X + 1, _lr_max_label(graph, ranks) + 3)
 
-    max_label = max(
+    centers = assign_positions(by_rank, sizes.lay_h, 1, graph.edges, ranks)
+    edge_bus, bus_tracks = assign_bus_tracks(graph, ranks, centers, max_rank, True)
+
+    rank_x = [0] * (max_rank + 1)
+    for r in range(1, max_rank + 1):
+        gap = max(base_gap, bus_tracks[r - 1] + 1)
+        rank_x[r] = rank_x[r - 1] + col_w[r - 1] + gap
+    canvas_w = rank_x[max_rank] + col_w[max_rank] + _lr_self_label_margin(
+        sizes, by_rank[max_rank]
+    )
+    band_end = [rank_x[r] + col_w[r] for r in range(max_rank + 1)]
+
+    diagram_h = _place_lr_nodes(by_rank, sizes, centers, rank_x, placed)
+    edge_lane, canvas_h, lane_base = assign_lane_tracks(
+        graph, ranks, placed, False, diagram_h
+    )
+    return RoutePlan((canvas_w, canvas_h), band_end, edge_bus, lane_base, edge_lane)
+
+
+def _lr_max_label(graph: Graph, ranks: list[int]) -> int:
+    return max(
         (
             min(str_width(e.label), MAX_LABEL)
             for e in graph.edges
@@ -309,39 +299,26 @@ def place_lr(
         ),
         default=0,
     )
-    base_gap = max(GAP_X + 1, max_label + 3)
 
-    centers = assign_positions(by_rank, sizes.lay_h, 1, graph.edges, ranks)
 
-    edge_bus = [0] * len(graph.edges)
-    bus_tracks = [0] * (max_rank + 1)
-    for r in range(max_rank):
-        spans = bus_spans_td(graph, ranks, centers, r, True)
-        if not spans:
-            continue
-        assigned, count = assign_tracks(spans)
-        for idx, slot in assigned:
-            edge_bus[idx] = slot
-        bus_tracks[r] = count
-
-    rank_x = [0] * (max_rank + 1)
-    for r in range(1, max_rank + 1):
-        gap = max(base_gap, bus_tracks[r - 1] + 1)
-        rank_x[r] = rank_x[r - 1] + col_w[r - 1] + gap
-    canvas_w = (
-        rank_x[max_rank]
-        + col_w[max_rank]
-        + max(
-            (
-                2 + sizes.self_label_w[i]
-                for i in by_rank[max_rank]
-                if sizes.extra_h[i] > 0 and sizes.self_label_w[i] > 0
-            ),
-            default=0,
-        )
+def _lr_self_label_margin(sizes: NodeSizes, last_rank: list[int]) -> int:
+    return max(
+        (
+            2 + sizes.self_label_w[i]
+            for i in last_rank
+            if sizes.extra_h[i] > 0 and sizes.self_label_w[i] > 0
+        ),
+        default=0,
     )
-    band_end = [rank_x[r] + col_w[r] for r in range(max_rank + 1)]
 
+
+def _place_lr_nodes(
+    by_rank: list[list[int]],
+    sizes: NodeSizes,
+    centers: list[int],
+    rank_x: list[int],
+    placed: list[Placed],
+) -> int:
     diagram_h = 1
     for r, row in enumerate(by_rank):
         x = rank_x[r]
@@ -352,15 +329,4 @@ def place_lr(
             y = max(cy - (h + sizes.extra_h[idx]) // 2, 0)
             placed[idx] = Placed(x, y, w, h, x + w // 2, y + h // 2, r)
             diagram_h = max(diagram_h, y + h + sizes.extra_h[idx])
-
-    edge_lane = [0] * len(graph.edges)
-    lanes = lane_spans(graph, ranks, placed, False)
-    if not lanes:
-        canvas_h, lane_base = diagram_h, 0
-    else:
-        assigned, count = assign_tracks(lanes)
-        for idx, slot in assigned:
-            edge_lane[idx] = slot
-        canvas_h, lane_base = diagram_h + 1 + count, diagram_h + 1
-
-    return RoutePlan((canvas_w, canvas_h), band_end, edge_bus, lane_base, edge_lane)
+    return diagram_h

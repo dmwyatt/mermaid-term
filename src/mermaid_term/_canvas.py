@@ -148,16 +148,18 @@ class Canvas:
                 else:
                     x += 1
 
+    def _row_end(self, y: int) -> int:
+        for x in range(self.w - 1, -1, -1):
+            c = self.ch[self.idx(x, y)]
+            if c != " " and c != CONT:
+                return x + 1
+        return 0
+
     def to_lines(self, styles: MermaidStyles) -> tuple[list[Line], list[str]]:
         styled: list[Line] = []
         plain: list[str] = []
         for y in range(self.h):
-            last = 0
-            for x in range(self.w - 1, -1, -1):
-                c = self.ch[self.idx(x, y)]
-                if c != " " and c != CONT:
-                    last = x + 1
-                    break
+            last = self._row_end(y)
             spans: list[Span] = []
             plain_row: list[str] = []
             run: list[str] = []

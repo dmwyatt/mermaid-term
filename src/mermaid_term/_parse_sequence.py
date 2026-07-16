@@ -98,6 +98,13 @@ _DIVIDERS = frozenset(
 )
 
 
+@dataclass
+class _ParseState:
+    autonumber: bool = False
+    msg_count: int = 0
+    blocks: list[bool] = field(default_factory=list)
+
+
 def parse_sequence(src: str) -> Sequence | None:
     statements = statements_of(src)
     if not statements:
@@ -107,81 +114,97 @@ def parse_sequence(src: str) -> Sequence | None:
         return None
 
     seq = Sequence()
-    autonumber = False
-    msg_count = 0
-    blocks: list[bool] = []
-
+    state = _ParseState()
     for st in statements[1:]:
-        words = st.split()
-        first = words[0].lower() if words else ""
-        if first in ("participant", "actor"):
-            rest = st[len(first) :].strip()
-            if not rest:
-                return None
-            if " as " in rest:
-                pid, label_part = rest.split(" as ", 1)
-                pid = pid.strip()
-                label: str | None = clean_label(label_part)
-            else:
-                pid, label = rest, None
-            if seq.participant(pid, label) is None:
-                return None
-        elif first == "autonumber":
-            autonumber = True
-        elif first in _SKIPPED:
-            pass
-        elif first == "note":
-            rest = st[len(first) :].strip()
-            parsed = parse_note_anchor(rest, seq)
-            if parsed is None:
-                return None
-            text_part, anchor = parsed
-            if len(seq.items) >= MAX_EDGES:
-                return None
-            seq.items.append(SeqNote(anchor, text_part))
-        elif first in _DIVIDERS:
-            if first in ("else", "and", "option"):
-                if not blocks or blocks[-1] is not True:
-                    continue
-            else:
-                blocks.append(True)
-            if len(seq.items) >= MAX_EDGES:
-                return None
-            seq.items.append(SeqDivider(decode_html_entities(st)))
-        elif first in ("rect", "box"):
-            blocks.append(False)
-        elif first == "end":
-            if blocks and blocks.pop() is True:
-                if len(seq.items) >= MAX_EDGES:
-                    return None
-                seq.items.append(SeqDivider("end"))
-        else:
-            msg = parse_seq_message(st, seq)
-            if msg is None:
-                return None
-            from_, to, text, dashed, head = msg
-            if autonumber:
-                msg_count += 1
-                text = f"{msg_count}. {text}" if text is not None else f"{msg_count}."
-            if len(seq.items) >= MAX_EDGES:
-                return None
-            seq.items.append(SeqMessage(from_, to, text, dashed, head))
+        if not _apply_seq_statement(st, seq, state):
+            return None
 
     if not seq.labels:
         return None
     return seq
 
 
-def parse_note_anchor(rest: str, seq: Sequence) -> tuple[str, NoteAnchor] | None:
-    lower = rest.lower()
-    if lower.startswith("over "):
-        ids_and_text, kind = rest[len("over ") :], 0
-    elif lower.startswith("left of "):
-        ids_and_text, kind = rest[len("left of ") :], 1
-    elif lower.startswith("right of "):
-        ids_and_text, kind = rest[len("right of ") :], 2
+def _apply_seq_statement(st: str, seq: Sequence, state: _ParseState) -> bool:
+    words = st.split()
+    first = words[0].lower() if words else ""
+    if first in ("participant", "actor"):
+        return _participant_stmt(st, first, seq)
+    if first == "autonumber":
+        state.autonumber = True
+        return True
+    if first in _SKIPPED:
+        return True
+    if first == "note":
+        return _note_stmt(st, first, seq)
+    if first in _DIVIDERS:
+        return _divider_stmt(st, first, seq, state.blocks)
+    if first in ("rect", "box"):
+        state.blocks.append(False)
+        return True
+    if first == "end":
+        return _end_stmt(seq, state.blocks)
+    return _message_stmt(st, seq, state)
+
+
+def _push_item(seq: Sequence, item: SeqItem) -> bool:
+    if len(seq.items) >= MAX_EDGES:
+        return False
+    seq.items.append(item)
+    return True
+
+
+def _participant_stmt(st: str, first: str, seq: Sequence) -> bool:
+    rest = st[len(first) :].strip()
+    if not rest:
+        return False
+    if " as " in rest:
+        pid, label_part = rest.split(" as ", 1)
+        pid = pid.strip()
+        label: str | None = clean_label(label_part)
     else:
+        pid, label = rest, None
+    return seq.participant(pid, label) is not None
+
+
+def _note_stmt(st: str, first: str, seq: Sequence) -> bool:
+    parsed = parse_note_anchor(st[len(first) :].strip(), seq)
+    if parsed is None:
+        return False
+    text_part, anchor = parsed
+    return _push_item(seq, SeqNote(anchor, text_part))
+
+
+def _divider_stmt(st: str, first: str, seq: Sequence, blocks: list[bool]) -> bool:
+    if first in ("else", "and", "option"):
+        if not blocks or blocks[-1] is not True:
+            return True
+    else:
+        blocks.append(True)
+    return _push_item(seq, SeqDivider(decode_html_entities(st)))
+
+
+def _end_stmt(seq: Sequence, blocks: list[bool]) -> bool:
+    if blocks and blocks.pop() is True:
+        return _push_item(seq, SeqDivider("end"))
+    return True
+
+
+def _message_stmt(st: str, seq: Sequence, state: _ParseState) -> bool:
+    msg = parse_seq_message(st, seq)
+    if msg is None:
+        return False
+    from_, to, text, dashed, head = msg
+    if state.autonumber:
+        state.msg_count += 1
+        text = f"{state.msg_count}. {text}" if text is not None else f"{state.msg_count}."
+    return _push_item(seq, SeqMessage(from_, to, text, dashed, head))
+
+
+def parse_note_anchor(rest: str, seq: Sequence) -> tuple[str, NoteAnchor] | None:
+    target = _note_target(rest)
+    if target is None:
         return None
+    ids_and_text, kind = target
     if ":" not in ids_and_text:
         return None
     ids, text = ids_and_text.split(":", 1)
@@ -192,30 +215,37 @@ def parse_note_anchor(rest: str, seq: Sequence) -> tuple[str, NoteAnchor] | None
     a = seq.participant(parts[0], None)
     if a is None:
         return None
-    if kind == 0:
-        if len(parts) > 1:
-            b = seq.participant(parts[1], None)
-            if b is None:
-                return None
-        else:
-            b = a
-        return (text, NoteOver(min(a, b), max(a, b)))
+    return _anchored(kind, parts, a, seq, text)
+
+
+def _note_target(rest: str) -> tuple[str, int] | None:
+    lower = rest.lower()
+    for prefix, kind in (("over ", 0), ("left of ", 1), ("right of ", 2)):
+        if lower.startswith(prefix):
+            return (rest[len(prefix) :], kind)
+    return None
+
+
+def _anchored(
+    kind: int, parts: list[str], a: int, seq: Sequence, text: str
+) -> tuple[str, NoteAnchor] | None:
     if kind == 1:
         return (text, NoteLeft(a))
-    return (text, NoteRight(a))
+    if kind == 2:
+        return (text, NoteRight(a))
+    b = a
+    if len(parts) > 1:
+        maybe = seq.participant(parts[1], None)
+        if maybe is None:
+            return None
+        b = maybe
+    return (text, NoteOver(min(a, b), max(a, b)))
 
 
 def parse_seq_message(
     st: str, seq: Sequence
 ) -> tuple[int, int, str | None, bool, SeqHead] | None:
-    found: tuple[int, str, bool, SeqHead] | None = None
-    for pos in range(len(st)):
-        for op, dashed, head in SEQ_OPS:
-            if st.startswith(op, pos):
-                found = (pos, op, dashed, head)
-                break
-        if found is not None:
-            break
+    found = _find_seq_op(st)
     if found is None:
         return None
     pos, op, dashed, head = found
@@ -239,3 +269,11 @@ def parse_seq_message(
     if to is None:
         return None
     return (from_, to, text, dashed, head)
+
+
+def _find_seq_op(st: str) -> tuple[int, str, bool, SeqHead] | None:
+    for pos in range(len(st)):
+        for op, dashed, head in SEQ_OPS:
+            if st.startswith(op, pos):
+                return (pos, op, dashed, head)
+    return None

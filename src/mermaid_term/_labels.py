@@ -53,12 +53,7 @@ def statements_of(src: str) -> list[str]:
 
 def clean_label(raw: str) -> str:
     stripped = strip_html_tags(raw.strip())
-    trimmed = stripped.strip()
-    unquoted = trimmed
-    if len(trimmed) >= 2 and trimmed[0] == '"' and trimmed[-1] == '"':
-        unquoted = trimmed[1:-1].strip()
-    elif len(trimmed) >= 2 and trimmed[0] == "'" and trimmed[-1] == "'":
-        unquoted = trimmed[1:-1].strip()
+    unquoted = _strip_quotes(stripped.strip())
     if len(unquoted) >= 2 and unquoted[0] == "`" and unquoted[-1] == "`":
         text = strip_markdown(unquoted[1:-1].strip())
     else:
@@ -66,6 +61,13 @@ def clean_label(raw: str) -> str:
     # Decode after tag-stripping so `<b>` is removed as markup while `&lt;b&gt;`
     # survives as a literal `<b>`; one decode at the single return covers both paths.
     return decode_html_entities(text)
+
+
+def _strip_quotes(trimmed: str) -> str:
+    for q in ('"', "'"):
+        if len(trimmed) >= 2 and trimmed[0] == q and trimmed[-1] == q:
+            return trimmed[1:-1].strip()
+    return trimmed
 
 
 def decode_html_entities(s: str) -> str:
@@ -162,21 +164,26 @@ def strip_html_tags(s: str) -> str:
 
 def _html_tag_at(s: str, start: int) -> tuple[str, int] | None:
     i = start + 1
-    n = len(s)
-    if i < n and s[i] == "/":
+    if i < len(s) and s[i] == "/":
         i += 1
     name_start = i
-    while i < n and s[i].isascii() and s[i].isalnum():
+    while i < len(s) and s[i].isascii() and s[i].isalnum():
         i += 1
     if i == name_start:
         return None
-    name = s[name_start:i]
-    while i < n and s[i] != ">":
+    end = _tag_close(s, i)
+    if end is None:
+        return None
+    return (s[name_start:i], end)
+
+
+def _tag_close(s: str, i: int) -> int | None:
+    while i < len(s) and s[i] != ">":
         if s[i] == "<":
             return None
         i += 1
-    if i < n and s[i] == ">":
-        return (name, i + 1)
+    if i < len(s) and s[i] == ">":
+        return i + 1
     return None
 
 

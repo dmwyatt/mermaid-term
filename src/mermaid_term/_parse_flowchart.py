@@ -16,46 +16,52 @@ from ._model import (
     parse_dir,
 )
 
+_SKIP_WORDS = frozenset(("classdef", "class", "style", "linkstyle", "click", "direction"))
+
 
 def parse_graph(src: str) -> Graph | None:
     statements = statements_of(src)
     if not statements:
         return None
     header_tokens = statements[0].split()
-    if not header_tokens:
-        return None
-    kind = header_tokens[0].lower()
-    if kind not in ("graph", "flowchart"):
+    if not header_tokens or header_tokens[0].lower() not in ("graph", "flowchart"):
         return None
     dir_token = header_tokens[1] if len(header_tokens) > 1 else "TB"
 
     graph = Graph(dir=parse_dir(dir_token))
     stack: list[int] = []
     for st in statements[1:]:
-        words = st.split()
-        first_word = words[0].lower() if words else ""
-        if first_word == "subgraph":
-            if len(graph.groups) >= MAX_GROUPS or len(stack) >= MAX_GROUP_DEPTH:
-                return None
-            gid, label = parse_subgraph_decl(st[len("subgraph") :].strip())
-            graph.groups.append(Group(gid, label, stack[-1] if stack else None))
-            stack.append(len(graph.groups) - 1)
-            graph.cur_group = stack[-1]
-            continue
-        if first_word == "end":
-            if stack:
-                stack.pop()
-            graph.cur_group = stack[-1] if stack else None
-            continue
-        if first_word in ("classdef", "class", "style", "linkstyle", "click", "direction"):
-            continue
-        parse_statement(st, graph)
-        if graph.over_cap:
+        if not _apply_graph_statement(st, graph, stack):
             return None
-
     if not graph.nodes:
         return None
     return graph
+
+
+def _apply_graph_statement(st: str, graph: Graph, stack: list[int]) -> bool:
+    words = st.split()
+    first_word = words[0].lower() if words else ""
+    if first_word == "subgraph":
+        return _open_subgraph(st, graph, stack)
+    if first_word == "end":
+        if stack:
+            stack.pop()
+        graph.cur_group = stack[-1] if stack else None
+        return True
+    if first_word in _SKIP_WORDS:
+        return True
+    parse_statement(st, graph)
+    return not graph.over_cap
+
+
+def _open_subgraph(st: str, graph: Graph, stack: list[int]) -> bool:
+    if len(graph.groups) >= MAX_GROUPS or len(stack) >= MAX_GROUP_DEPTH:
+        return False
+    gid, label = parse_subgraph_decl(st[len("subgraph") :].strip())
+    graph.groups.append(Group(gid, label, stack[-1] if stack else None))
+    stack.append(len(graph.groups) - 1)
+    graph.cur_group = stack[-1]
+    return True
 
 
 def parse_subgraph_decl(rest: str) -> tuple[str, str]:
@@ -86,23 +92,34 @@ def parse_statement(st: str, graph: Graph) -> None:
         link = parse_link(st, i)
         if link is None:
             break
-        left, right, line, label, ni = link
-        i = skip_spaces(st, ni)
+        i = skip_spaces(st, link[4])
         parsed = parse_node_group(st, i, graph)
         if parsed is None:
             break
         nxt, i = parsed
-        for f in prev:
-            for t in nxt:
-                if len(graph.edges) >= MAX_EDGES:
-                    graph.over_cap = True
-                    return
-                if left == Head.ARROW and right != Head.ARROW:
-                    from_, to, head_to, head_from = t, f, Head.ARROW, right
-                else:
-                    from_, to, head_to, head_from = f, t, right, left
-                graph.edges.append(Edge(from_, to, label, head_to, head_from, line))
+        if not _connect(graph, prev, nxt, link):
+            return
         prev = nxt
+
+
+def _connect(
+    graph: Graph,
+    prev: list[int],
+    nxt: list[int],
+    link: tuple[Head, Head, LineKind, str | None, int],
+) -> bool:
+    left, right, line, label, _ = link
+    for f in prev:
+        for t in nxt:
+            if len(graph.edges) >= MAX_EDGES:
+                graph.over_cap = True
+                return False
+            if left == Head.ARROW and right != Head.ARROW:
+                from_, to, head_to, head_from = t, f, Head.ARROW, right
+            else:
+                from_, to, head_to, head_from = f, t, right, left
+            graph.edges.append(Edge(from_, to, label, head_to, head_from, line))
+    return True
 
 
 def parse_node_group(st: str, start: int, graph: Graph) -> tuple[list[int], int] | None:
@@ -133,6 +150,20 @@ def is_id_char(c: str) -> bool:
     return c.isalnum() or c == "_"
 
 
+# Two-char openers are matched before their one-char prefixes.
+_NODE_SHAPES = (
+    ("[[", "]]", Shape.RECT),
+    ("[(", ")]", Shape.ROUND),
+    ("[", "]", Shape.RECT),
+    ("((", "))", Shape.ROUND),
+    ("([", "])", Shape.ROUND),
+    ("(", ")", Shape.ROUND),
+    ("{{", "}}", Shape.DIAMOND),
+    ("{", "}", Shape.DIAMOND),
+    (">", "]", Shape.RECT),
+)
+
+
 def parse_node(st: str, start: int, graph: Graph) -> tuple[int, int] | None:
     i = skip_spaces(st, start)
     id_start = i
@@ -142,34 +173,13 @@ def parse_node(st: str, start: int, graph: Graph) -> tuple[int, int] | None:
         return None
     node_id = st[id_start:i]
 
-    shape: Shape | None = None
-    label: str | None = None
-    after = i
-    c = st[i] if i < len(st) else ""
-    c2 = st[i + 1] if i + 1 < len(st) else ""
-    if c == "[":
-        if c2 == "[":
-            shape, label, after = read_shape(st, i + 2, "]]", Shape.RECT)
-        elif c2 == "(":
-            shape, label, after = read_shape(st, i + 2, ")]", Shape.ROUND)
-        else:
-            shape, label, after = read_shape(st, i + 1, "]", Shape.RECT)
-    elif c == "(":
-        if c2 == "(":
-            shape, label, after = read_shape(st, i + 2, "))", Shape.ROUND)
-        elif c2 == "[":
-            shape, label, after = read_shape(st, i + 2, "])", Shape.ROUND)
-        else:
-            shape, label, after = read_shape(st, i + 1, ")", Shape.ROUND)
-    elif c == "{":
-        if c2 == "{":
-            shape, label, after = read_shape(st, i + 2, "}}", Shape.DIAMOND)
-        else:
-            shape, label, after = read_shape(st, i + 1, "}", Shape.DIAMOND)
-    elif c == ">":
-        shape, label, after = read_shape(st, i + 1, "]", Shape.RECT)
+    shape, label, after = Shape.RECT, None, i
+    for opener, closer, sh in _NODE_SHAPES:
+        if st.startswith(opener, i):
+            shape, label, after = read_shape(st, i + len(opener), closer, sh)
+            break
 
-    idx = graph.node_index(node_id, label, shape if shape is not None else Shape.RECT)
+    idx = graph.node_index(node_id, label, shape)
     if idx is None:
         return None
     return (idx, after)
@@ -178,10 +188,7 @@ def parse_node(st: str, start: int, graph: Graph) -> tuple[int, int] | None:
 def read_shape(st: str, start: int, closer: str, shape: Shape) -> tuple[Shape, str, int]:
     i = start
     text: list[str] = []
-    j = start
-    while j < len(st) and st[j] in " \t":
-        j += 1
-    quoted = j < len(st) and st[j] == '"'
+    quoted = st[skip_spaces(st, start) :].startswith('"')
     in_quotes = False
     while i < len(st):
         c = st[i]
@@ -205,17 +212,9 @@ def parse_link(
     st: str, start: int
 ) -> tuple[Head, Head, LineKind, str | None, int] | None:
     i = skip_spaces(st, start)
-    left = Head.NONE
-    if (
-        i < len(st)
-        and st[i] in "ox"
-        and i + 1 < len(st)
-        and st[i + 1] in "-.="
-    ):
-        left = Head.CIRCLE if st[i] == "o" else Head.CROSS
-        i += 1
+    left, i = _left_head(st, i)
     op_start = i
-    while i < len(st) and st[i] in "-.=<>":
+    while i < len(st) and is_link_char(st[i]):
         i += 1
     if i == op_start:
         return None
@@ -223,44 +222,68 @@ def parse_link(
     if left == Head.NONE and op1.startswith("<"):
         left = Head.ARROW
     line = line_kind(op1)
-    right = Head.ARROW if ">" in op1 else Head.NONE
-    if right == Head.NONE:
-        trailing = trailing_head(st, i)
-        if trailing is not None:
-            right, i = trailing
+    right, i = _right_head(st, i, op1)
 
-    if i < len(st) and st[i] == "|":
-        i += 1
-        l_start = i
-        while i < len(st) and st[i] != "|":
-            i += 1
-        label = clean_label(st[l_start:i])
-        if i < len(st) and st[i] == "|":
-            i += 1
-        return (left, right, line, non_empty(label), i)
+    piped = _piped_label(st, i)
+    if piped is not None:
+        label, i = piped
+        return (left, right, line, label, i)
 
     if right == Head.NONE:
-        text_start = skip_spaces(st, i)
-        j = text_start
-        while j < len(st) and not is_link_char(st[j]):
-            j += 1
-        if j < len(st) and j > text_start and st[j] in "-.=>":
-            text = st[text_start:j]
-            op2_start = j
-            while j < len(st) and is_link_char(st[j]):
-                j += 1
-            op2 = st[op2_start:j]
-            if ">" in op2:
-                right = Head.ARROW
-            else:
-                trailing = trailing_head(st, j)
-                if trailing is not None:
-                    right, j = trailing
-            if line == LineKind.SOLID:
-                line = line_kind(op2)
-            return (left, right, line, non_empty(clean_label(text)), j)
+        inline = _inline_label(st, i, line)
+        if inline is not None:
+            right, line, label, i = inline
+            return (left, right, line, label, i)
 
     return (left, right, line, None, i)
+
+
+def _left_head(st: str, i: int) -> tuple[Head, int]:
+    if i < len(st) and st[i] in "ox" and i + 1 < len(st) and st[i + 1] in "-.=":
+        return (Head.CIRCLE if st[i] == "o" else Head.CROSS, i + 1)
+    return (Head.NONE, i)
+
+
+def _right_head(st: str, i: int, op: str) -> tuple[Head, int]:
+    if ">" in op:
+        return (Head.ARROW, i)
+    trailing = trailing_head(st, i)
+    if trailing is not None:
+        return trailing
+    return (Head.NONE, i)
+
+
+def _piped_label(st: str, i: int) -> tuple[str | None, int] | None:
+    if i >= len(st) or st[i] != "|":
+        return None
+    i += 1
+    l_start = i
+    while i < len(st) and st[i] != "|":
+        i += 1
+    label = clean_label(st[l_start:i])
+    if i < len(st) and st[i] == "|":
+        i += 1
+    return (non_empty(label), i)
+
+
+def _inline_label(
+    st: str, i: int, line: LineKind
+) -> tuple[Head, LineKind, str | None, int] | None:
+    text_start = skip_spaces(st, i)
+    j = text_start
+    while j < len(st) and not is_link_char(st[j]):
+        j += 1
+    if j >= len(st) or j == text_start or st[j] not in "-.=>":
+        return None
+    text = st[text_start:j]
+    op2_start = j
+    while j < len(st) and is_link_char(st[j]):
+        j += 1
+    op2 = st[op2_start:j]
+    right, j = _right_head(st, j, op2)
+    if line == LineKind.SOLID:
+        line = line_kind(op2)
+    return (right, line, non_empty(clean_label(text)), j)
 
 
 def line_kind(op: str) -> LineKind:

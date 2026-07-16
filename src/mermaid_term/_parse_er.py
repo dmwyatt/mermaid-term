@@ -31,51 +31,72 @@ def parse_er(src: str) -> tuple[Graph, list[ClassInfo]] | None:
 
     for st in statements[1:]:
         if cur_entity is not None:
-            if st == "}":
-                cur_entity = None
-            else:
-                push_er_attribute(infos[cur_entity], st)
+            cur_entity = _attribute_line(st, infos, cur_entity)
             continue
-        rel = split_er_relationship(st)
-        if rel is not None:
-            rel_part, label_part = rel
-            tokens = rel_part.split()
-            if len(tokens) != 3:
-                return None
-            lhs, op, rhs = tokens
-            parsed_op = parse_er_op(op)
-            if parsed_op is None:
-                return None
-            card_l, card_r, line = parsed_op
-            f = er_entity(graph, infos, lhs)
-            if f is None:
-                return None
-            t = er_entity(graph, infos, rhs)
-            if t is None:
-                return None
-            if len(graph.edges) >= MAX_EDGES:
-                return None
-            rel_label = clean_label(label_part) if label_part is not None else ""
-            parts = [p for p in (card_l, rel_label, card_r) if p]
-            label = non_empty(" ".join(parts))
-            graph.edges.append(Edge(f, t, label, Head.NONE, Head.NONE, line))
-            continue
-        if st.endswith("{"):
-            decl, open_ = st[:-1].strip(), True
-        else:
-            decl, open_ = st, False
-        if not decl or len(decl.split()) != 1:
+        ok, cur_entity = _apply_er_statement(st, graph, infos)
+        if not ok:
             return None
-        idx = er_entity(graph, infos, decl)
-        if idx is None:
-            return None
-        if open_:
-            cur_entity = idx
 
     if not graph.nodes:
         return None
     sync_infos(graph, infos)
     return (graph, infos)
+
+
+def _attribute_line(st: str, infos: list[ClassInfo], cur_entity: int) -> int | None:
+    if st == "}":
+        return None
+    push_er_attribute(infos[cur_entity], st)
+    return cur_entity
+
+
+def _apply_er_statement(
+    st: str, graph: Graph, infos: list[ClassInfo]
+) -> tuple[bool, int | None]:
+    rel = split_er_relationship(st)
+    if rel is not None:
+        return (_add_er_relationship(rel, graph, infos), None)
+    return _entity_decl(st, graph, infos)
+
+
+def _add_er_relationship(
+    rel: tuple[str, str | None], graph: Graph, infos: list[ClassInfo]
+) -> bool:
+    rel_part, label_part = rel
+    tokens = rel_part.split()
+    if len(tokens) != 3:
+        return False
+    lhs, op, rhs = tokens
+    parsed_op = parse_er_op(op)
+    if parsed_op is None:
+        return False
+    card_l, card_r, line = parsed_op
+    f = er_entity(graph, infos, lhs)
+    if f is None:
+        return False
+    t = er_entity(graph, infos, rhs)
+    if t is None:
+        return False
+    if len(graph.edges) >= MAX_EDGES:
+        return False
+    rel_label = clean_label(label_part) if label_part is not None else ""
+    parts = [p for p in (card_l, rel_label, card_r) if p]
+    graph.edges.append(Edge(f, t, non_empty(" ".join(parts)), Head.NONE, Head.NONE, line))
+    return True
+
+
+def _entity_decl(st: str, graph: Graph, infos: list[ClassInfo]) -> tuple[bool, int | None]:
+    """Returns (ok, index-of-opened-block); the index is None for a bare declaration."""
+    if st.endswith("{"):
+        decl, open_ = st[:-1].strip(), True
+    else:
+        decl, open_ = st, False
+    if not decl or len(decl.split()) != 1:
+        return (False, None)
+    idx = er_entity(graph, infos, decl)
+    if idx is None:
+        return (False, None)
+    return (True, idx if open_ else None)
 
 
 def er_entity(graph: Graph, infos: list[ClassInfo], token: str) -> int | None:

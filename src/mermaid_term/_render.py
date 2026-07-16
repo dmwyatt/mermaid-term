@@ -104,10 +104,21 @@ def _fallback(
 ) -> MermaidArt:
     title = f" mermaid: {_first_word(src)} "
     limit = max(max_width - 4, 8) if max_width is not None else None
+    body = _fallback_body(src, limit)
+    art = _framed_source(title, body, styles)
+    if too_wide:
+        _append_hint(art, styles, max_width)
+    return art
+
+
+def _fallback_body(src: str, limit: int | None) -> list[str]:
     raw_lines = [l.rstrip() for l in src.splitlines()]
     while raw_lines and not raw_lines[0]:
         raw_lines.pop(0)
-    body = [chunk for line in raw_lines for chunk in chunk_line(line, limit)]
+    return [chunk for line in raw_lines for chunk in chunk_line(line, limit)]
+
+
+def _framed_source(title: str, body: list[str], styles: MermaidStyles) -> MermaidArt:
     content_w = max([str_width(l) for l in body] + [str_width(title)], default=0)
     inner = content_w + 2
 
@@ -142,14 +153,14 @@ def _fallback(
     bottom = f"╰{'─' * inner}╯"
     styled.append(Line.from_spans([Span(bottom, styles.border)]))
     plain.append(bottom)
-
-    if too_wide:
-        hint_style = styles.border.add_modifier(ITALIC)
-        for chunk in wrap_words(TOO_WIDE_HINT, max_width):
-            styled.append(Line.from_spans([Span(chunk, hint_style)]))
-            plain.append(chunk)
-
     return MermaidArt(styled, plain)
+
+
+def _append_hint(art: MermaidArt, styles: MermaidStyles, max_width: int | None) -> None:
+    hint_style = styles.border.add_modifier(ITALIC)
+    for chunk in wrap_words(TOO_WIDE_HINT, max_width):
+        art.styled_lines.append(Line.from_spans([Span(chunk, hint_style)]))
+        art.plain_lines.append(chunk)
 
 
 def _first_word(src: str) -> str:
