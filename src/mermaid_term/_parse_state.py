@@ -12,12 +12,12 @@ def parse_state(src: str) -> Graph | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or not header_tokens[0].lower().startswith("statediagram"):
         return None
 
     graph = Graph(dir=Dir.DOWN)
-    if not _parse_state_statements(statements[1:], graph):
+    if not _parse_state_statements([s.text for s in statements[1:]], graph):
         return None
     if not graph.nodes:
         return None

@@ -21,7 +21,7 @@ def parse_er(src: str) -> tuple[Graph, list[ClassInfo]] | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or header_tokens[0].lower() != "erdiagram":
         return None
 
@@ -29,7 +29,7 @@ def parse_er(src: str) -> tuple[Graph, list[ClassInfo]] | None:
     infos: list[ClassInfo] = []
     cur_entity: int | None = None
 
-    for st in statements[1:]:
+    for st in (s.text for s in statements[1:]):
         if cur_entity is not None:
             cur_entity = _attribute_line(st, infos, cur_entity)
             continue

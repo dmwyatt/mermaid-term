@@ -1,6 +1,6 @@
 """Label cleaning: HTML tags, entities, markdown strings, quoting."""
 
-from mermaid_term._labels import decode_html_entities
+from mermaid_term._labels import Statement, decode_html_entities, statements_of
 from mermaid_term._model import ClassInfo
 from mermaid_term._parse_class import parse_class, push_member
 from mermaid_term._parse_er import push_er_attribute
@@ -9,6 +9,29 @@ from mermaid_term._parse_sequence import SeqDivider, SeqMessage, SeqNote, parse_
 from mermaid_term._parse_state import parse_state
 
 from .util import plain
+
+
+def test_statements_carry_their_source_line_numbers():
+    stmts = statements_of("graph TD\n  A --> B\n  B --> C\n")
+    assert stmts == [
+        Statement("graph TD", 1),
+        Statement("A --> B", 2),
+        Statement("B --> C", 3),
+    ]
+
+
+def test_semicolon_split_statements_share_one_line():
+    stmts = statements_of("graph TD\n A-->B; B-->C\n")
+    assert stmts == [
+        Statement("graph TD", 1),
+        Statement("A-->B", 2),
+        Statement("B-->C", 2),
+    ]
+
+
+def test_blank_and_comment_lines_advance_line_numbers():
+    src = "graph TD\n\n%% comment only\n A --> B %% trailing\n"
+    assert statements_of(src) == [Statement("graph TD", 1), Statement("A --> B", 4)]
 
 
 def test_html_tags_are_stripped_from_labels():

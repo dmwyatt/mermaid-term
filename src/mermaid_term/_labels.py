@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 ENTITY_LOOKAHEAD = 10
+
+
+@dataclass(frozen=True)
+class Statement:
+    """One mermaid statement and the 1-based source line it came from."""
+
+    text: str
+    line: int
 
 HTML_FORMAT_TAGS = frozenset(
     [
@@ -44,10 +54,12 @@ def _flush_statement(cur: list[str], out: list[str]) -> None:
     cur.clear()
 
 
-def statements_of(src: str) -> list[str]:
-    out: list[str] = []
-    for raw_line in src.splitlines():
-        split_statements(raw_line, out)
+def statements_of(src: str) -> list[Statement]:
+    out: list[Statement] = []
+    for line_no, raw_line in enumerate(src.splitlines(), start=1):
+        parts: list[str] = []
+        split_statements(raw_line, parts)
+        out.extend(Statement(text, line_no) for text in parts)
     return out
 
 

@@ -23,15 +23,15 @@ def parse_graph(src: str) -> Graph | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or header_tokens[0].lower() not in ("graph", "flowchart"):
         return None
     dir_token = header_tokens[1] if len(header_tokens) > 1 else "TB"
 
     graph = Graph(dir=parse_dir(dir_token))
     stack: list[int] = []
-    for st in statements[1:]:
-        if not _apply_graph_statement(st, graph, stack):
+    for stmt in statements[1:]:
+        if not _apply_graph_statement(stmt.text, graph, stack):
             return None
     if not graph.nodes:
         return None

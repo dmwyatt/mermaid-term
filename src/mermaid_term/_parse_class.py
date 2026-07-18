@@ -52,7 +52,7 @@ def parse_class(src: str) -> tuple[Graph, list[ClassInfo]] | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or not header_tokens[0].lower().startswith("classdiagram"):
         return None
 
@@ -60,7 +60,7 @@ def parse_class(src: str) -> tuple[Graph, list[ClassInfo]] | None:
     infos: list[ClassInfo] = []
     cur_class: int | None = None
 
-    for st in statements[1:]:
+    for st in (s.text for s in statements[1:]):
         if cur_class is not None:
             cur_class = _member_line(st, infos, cur_class)
             continue

@@ -109,14 +109,14 @@ def parse_sequence(src: str) -> Sequence | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or header_tokens[0].lower() != "sequencediagram":
         return None
 
     seq = Sequence()
     state = _ParseState()
-    for st in statements[1:]:
-        if not _apply_seq_statement(st, seq, state):
+    for stmt in statements[1:]:
+        if not _apply_seq_statement(stmt.text, seq, state):
             return None
 
     if not seq.labels:
