@@ -80,7 +80,7 @@ def _diagram_canvas(
             graph, infos = parsed
             return _oriented(_class_canvas(graph, infos, max_width), graph.dir)
 
-    seq = parse_sequence(src)
+    seq = parse_sequence(src, issues)
     if seq is not None:
         return layout_sequence(seq, max_width)
     return None

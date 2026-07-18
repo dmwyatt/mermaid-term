@@ -155,7 +155,8 @@ def test_direct_push_sinks_decode_entities():
     )
 
     s = parse_sequence(
-        'sequenceDiagram\n  A->>B: "call &lt;svc&gt;"\n  Note over A,B: "memo &lt;o&gt;"\n  alt "c &lt;x&gt;"\n    A->>B: ok\n  end'
+        'sequenceDiagram\n  A->>B: "call &lt;svc&gt;"\n  Note over A,B: "memo &lt;o&gt;"\n  alt "c &lt;x&gt;"\n    A->>B: ok\n  end',
+        [],
     )
     assert s is not None
     assert any(

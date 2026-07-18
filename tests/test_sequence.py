@@ -1,6 +1,7 @@
 """Sequence diagram parsing and rendering."""
 
 from mermaid_term import render
+from mermaid_term._model import ParseIssue
 from mermaid_term._text import CONT
 
 from .util import plain, styles
@@ -104,6 +105,33 @@ def test_sequence_unparseable_arrow_falls_back():
 def test_sequence_unknown_statement_falls_back():
     out = plain("sequenceDiagram\n A->>B: hi\n garbage statement here")
     assert "mermaid: sequenceDiagram" in out, out
+
+
+def test_sequence_bad_statement_reports_issue_and_falls_back():
+    art = render("sequenceDiagram\n A->>B: hi\n garbage statement here\n", styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.issues == [ParseIssue(3, "garbage statement here")]
+
+
+def test_sequence_skip_words_record_no_issues():
+    art = render(
+        "sequenceDiagram\n title My Title\n autonumber\n A->>B: call\n"
+        " activate B\n loop retry\n B-->>A: return\n end\n deactivate B\n",
+        styles(),
+        120,
+    )
+    assert art is not None
+    assert art.fallback is False
+    assert art.issues == []
+
+
+def test_sequence_over_cap_falls_back_with_no_issues():
+    src = "sequenceDiagram\n" + "".join(f" A->>B: msg {i}\n" for i in range(600))
+    art = render(src, styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.issues == []
 
 
 def test_sequence_over_wide_falls_back():
