@@ -1,0 +1,6 @@
+mermaid-term
+Copyright 2026 Dustin Wyatt
+
+This project is a Python port of the terminal Mermaid renderer from
+xai-org/grok-build (crates/codegen/xai-grok-markdown/src/mermaid.rs),
+Copyright 2023-2026 SpaceXAI, used under the Apache License 2.0.
