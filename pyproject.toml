@@ -2,7 +2,8 @@
 name = "mermaid-term"
 version = "0.1.0"
 description = "Render Mermaid diagrams as Unicode box-drawing art in the terminal"
-license = "MIT"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 keywords = ["mermaid", "diagram", "terminal", "ascii-art", "cli"]
 classifiers = [
     "Environment :: Console",

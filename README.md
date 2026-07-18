@@ -95,3 +95,8 @@ uv run pytest
 
 The test suite is ported from the upstream Rust module and pins parser
 behavior and rendered output; new rendering changes should keep it green.
+
+## License
+
+[Apache-2.0](LICENSE), the same license as the upstream project this is
+ported from.
