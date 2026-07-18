@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ._canvas import Canvas
 from ._groups import grouped_canvas
 from ._labels import display_generics
 from ._layout import PLAIN, NodeExtra, OversizeError, layout_canvas
-from ._model import ClassInfo, Dir, Graph
+from ._model import ClassInfo, Dir, Graph, ParseIssue
 from ._parse_class import parse_class
 from ._parse_er import parse_er
 from ._parse_flowchart import parse_graph
@@ -21,10 +21,15 @@ from ._text import chunk_line, str_width, wrap_words
 
 @dataclass
 class MermaidArt:
-    """Rendered diagram: styled lines for ANSI output and plain text lines."""
+    """Rendered diagram: styled lines for ANSI output and plain text lines.
+
+    ``issues`` lists source statements the parser skipped, by 1-based line
+    number within the mermaid block.
+    """
 
     styled_lines: list[Line]
     plain_lines: list[str]
+    issues: list[ParseIssue] = field(default_factory=list)
 
 
 TOO_WIDE_HINT = (
@@ -40,19 +45,23 @@ def render(src: str, styles: MermaidStyles | None = None, max_width: int | None 
     if styles is None:
         styles = MermaidStyles.plain()
 
+    issues: list[ParseIssue] = []
     try:
-        canvas = _diagram_canvas(src, max_width)
+        canvas = _diagram_canvas(src, max_width, issues)
     except OversizeError as oversize:
-        return _fallback(src, styles, max_width, too_wide=oversize.kind == "width")
+        return _fallback(src, styles, max_width, oversize.kind == "width", issues)
     if canvas is None:
-        return _fallback(src, styles, max_width, too_wide=False)
+        return _fallback(src, styles, max_width, False, issues)
     styled_lines, plain_lines = canvas.to_lines(styles)
-    return MermaidArt(styled_lines, plain_lines)
+    return MermaidArt(styled_lines, plain_lines, issues)
 
 
-def _diagram_canvas(src: str, max_width: int | None) -> Canvas | None:
+def _diagram_canvas(
+    src: str, max_width: int | None, issues: list[ParseIssue]
+) -> Canvas | None:
     graph = parse_graph(src)
     if graph is not None:
+        issues.extend(graph.issues)
         if graph.groups:
             canvas = grouped_canvas(graph, max_width)
         else:
@@ -100,12 +109,17 @@ def _class_canvas(graph: Graph, infos: list[ClassInfo], max_width: int | None) -
 
 
 def _fallback(
-    src: str, styles: MermaidStyles, max_width: int | None, too_wide: bool
+    src: str,
+    styles: MermaidStyles,
+    max_width: int | None,
+    too_wide: bool,
+    issues: list[ParseIssue],
 ) -> MermaidArt:
     title = f" mermaid: {_first_word(src)} "
     limit = max(max_width - 4, 8) if max_width is not None else None
     body = _fallback_body(src, limit)
     art = _framed_source(title, body, styles)
+    art.issues = issues
     if too_wide:
         _append_hint(art, styles, max_width)
     return art

@@ -81,6 +81,26 @@ def test_fitting_diagram_has_no_width_warning():
     assert "▶" in out, f"should draw edges:\n{out}"
 
 
+def test_issues_survive_too_wide_fallback():
+    src = (
+        "flowchart LR\n"
+        " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+        " D -->\n"
+    )
+    art = render(src, styles(), 40)
+    assert art is not None
+    assert "mermaid: flowchart" in "\n".join(art.plain_lines)
+    assert [(i.line, i.text) for i in art.issues] == [(3, "D -->")]
+
+
+def test_over_cap_fallback_reports_no_issues():
+    src = "graph TD\n" + "".join(f" N{i} --> N{i + 1}\n" for i in range(10_000))
+    art = render(src, styles(), 120)
+    assert art is not None
+    assert "mermaid: graph" in "\n".join(art.plain_lines)
+    assert art.issues == []
+
+
 def test_fallback_wraps_long_lines_to_max_width():
     out = render(
         "gantt\n title a very long line that should wrap inside the fallback box nicely",

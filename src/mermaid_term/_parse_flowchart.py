@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._labels import clean_label, decode_html_entities, non_empty, statements_of
+from ._labels import Statement, clean_label, decode_html_entities, non_empty, statements_of
 from ._model import (
     MAX_EDGES,
     MAX_GROUP_DEPTH,
@@ -12,6 +12,7 @@ from ._model import (
     Group,
     Head,
     LineKind,
+    ParseIssue,
     Shape,
     parse_dir,
 )
@@ -31,14 +32,15 @@ def parse_graph(src: str) -> Graph | None:
     graph = Graph(dir=parse_dir(dir_token))
     stack: list[int] = []
     for stmt in statements[1:]:
-        if not _apply_graph_statement(stmt.text, graph, stack):
+        if not _apply_graph_statement(stmt, graph, stack):
             return None
     if not graph.nodes:
         return None
     return graph
 
 
-def _apply_graph_statement(st: str, graph: Graph, stack: list[int]) -> bool:
+def _apply_graph_statement(stmt: Statement, graph: Graph, stack: list[int]) -> bool:
+    st = stmt.text
     words = st.split()
     first_word = words[0].lower() if words else ""
     if first_word == "subgraph":
@@ -50,8 +52,12 @@ def _apply_graph_statement(st: str, graph: Graph, stack: list[int]) -> bool:
         return True
     if first_word in _SKIP_WORDS:
         return True
-    parse_statement(st, graph)
-    return not graph.over_cap
+    complete = parse_statement(st, graph)
+    if graph.over_cap:
+        return False
+    if not complete:
+        graph.issues.append(ParseIssue(stmt.line, st))
+    return True
 
 
 def _open_subgraph(st: str, graph: Graph, stack: list[int]) -> bool:
@@ -79,26 +85,33 @@ def parse_subgraph_decl(rest: str) -> tuple[str, str]:
     return (rest, rest)
 
 
-def parse_statement(st: str, graph: Graph) -> None:
+def parse_statement(st: str, graph: Graph) -> bool:
+    """Apply one node/link statement; report whether it parsed completely.
+
+    Returns False when the statement could not be fully consumed: no leading
+    node group, a link with no target, or leftover non-space input. Partial
+    effects (nodes and edges created before the failure) stay in ``graph``.
+    Capacity stops (``over_cap``) return True; they are not parse failures.
+    """
     parsed = parse_node_group(st, 0, graph)
     if parsed is None:
-        return
+        return graph.over_cap
     prev, i = parsed
 
     while True:
         i = skip_spaces(st, i)
         if i >= len(st):
-            break
+            return True
         link = parse_link(st, i)
         if link is None:
-            break
+            return False
         i = skip_spaces(st, link[4])
         parsed = parse_node_group(st, i, graph)
         if parsed is None:
-            break
+            return graph.over_cap
         nxt, i = parsed
         if not _connect(graph, prev, nxt, link):
-            return
+            return True
         prev = nxt
 
 
