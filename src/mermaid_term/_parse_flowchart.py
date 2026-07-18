@@ -191,11 +191,23 @@ def parse_node(st: str, start: int, graph: Graph) -> tuple[int, int] | None:
         if st.startswith(opener, i):
             shape, label, after = read_shape(st, i + len(opener), closer, sh)
             break
+    after = skip_class_shorthand(st, after)
 
     idx = graph.node_index(node_id, label, shape)
     if idx is None:
         return None
     return (idx, after)
+
+
+def skip_class_shorthand(st: str, i: int) -> int:
+    """Consume an optional ``:::className`` suffix; leave it unconsumed if empty."""
+    if not st.startswith(":::", i):
+        return i
+    j = i + 3
+    name_start = j
+    while j < len(st) and is_id_char(st[j]):
+        j += 1
+    return j if j > name_start else i
 
 
 def read_shape(st: str, start: int, closer: str, shape: Shape) -> tuple[Shape, str, int]:

@@ -164,3 +164,26 @@ def test_directives_and_subgraphs_record_no_issues():
     g = parse_graph(src)
     assert g is not None
     assert g.issues == []
+
+
+def test_class_shorthand_suffix_is_ignored():
+    g = parse_graph("graph TD\n A:::green --> B")
+    assert g is not None
+    assert len(g.nodes) == 2
+    assert len(g.edges) == 1
+    assert g.issues == []
+
+
+def test_class_shorthand_suffix_on_shaped_node_is_ignored():
+    g = parse_graph("graph TD\n A[Start]:::green --> B:::blue")
+    assert g is not None
+    assert len(g.nodes) == 2
+    assert len(g.edges) == 1
+    assert g.issues == []
+
+
+def test_class_shorthand_without_class_name_is_unparseable():
+    g = parse_graph("graph TD\n A::: --> B")
+    assert g is not None
+    assert len(g.issues) == 1
+    assert g.issues[0].text == "A::: --> B"
