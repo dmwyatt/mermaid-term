@@ -1,5 +1,10 @@
 # mermaid-term
 
+> [!WARNING]
+> This is a vibe-coded port: the Claude Fable 5 AI model translated the upstream
+> Rust module to Python with minimal human review. The ported test suite passes,
+> but read the code with that in mind.
+
 Render [Mermaid](https://mermaid.js.org/) diagrams as Unicode box-drawing art
 in your terminal. No browser, no Node, no image files.
 
