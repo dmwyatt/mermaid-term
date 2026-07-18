@@ -1,0 +1,6 @@
+flowchart TD
+  A[Request] -->|validate| B(Valid?)
+  B -->|yes| C[Process]
+  B -->|no| D[Reject]
+  C --> E(Store)
+  D --> E
