@@ -21,6 +21,10 @@ dependencies = [
     "wcwidth>=0.8.2",
 ]
 
+[project.urls]
+Repository = "https://github.com/dmwyatt/mermaid-term"
+Issues = "https://github.com/dmwyatt/mermaid-term/issues"
+
 [project.scripts]
 mermaid-term = "mermaid_term.cli:main"
 
