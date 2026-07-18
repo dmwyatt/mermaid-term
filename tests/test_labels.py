@@ -146,7 +146,7 @@ def test_direct_push_sinks_decode_entities():
     assert node("work <job>") and node("d <e>") and edge("on <go>")
     assert not node("&lt;") and not edge("&lt;")
 
-    parsed = parse_class('classDiagram\n  A --> B : "uses &lt;X&gt;"')
+    parsed = parse_class('classDiagram\n  A --> B : "uses &lt;X&gt;"', [])
     assert parsed is not None
     cg, _ = parsed
     assert any(
