@@ -10,6 +10,11 @@ runs `.github/workflows/publish.yml`, which tests, builds, and publishes.
 Never run `uv publish` locally; it would need a stored token and would skip
 the test gate.
 
+Two GitHub-side guards apply: a ruleset restricts `v*` tag creation and
+deletion to the repo admin (pushes as dmwyatt bypass it), and the `pypi`
+environment requires dmwyatt to approve the deployment before the publish
+job runs.
+
 ## Preconditions
 
 Abort and report if any of these fail:
@@ -31,11 +36,16 @@ Abort and report if any of these fail:
 4. Tag with the exact version: `git tag v$(uv version --short)`. The
    workflow rejects tags that don't match the package version.
 5. `git push origin main v<version>`
-6. Watch the run: `gh run watch` (or `gh run list --workflow=publish.yml`).
+6. The publish job pauses as "Waiting" until the `pypi` environment
+   deployment is approved. Have the user approve it:
+   `gh run list --workflow=publish.yml` for the run id, then
+   `gh run view <id> --web` and click "Review deployments". Do not try to
+   approve it yourself via the API; the human approval is the point.
+7. Watch the run: `gh run watch` (or `gh run list --workflow=publish.yml`).
    Do not report success until the workflow succeeds.
-7. Confirm the new version is live: `https://pypi.org/pypi/mermaid-term/json`
+8. Confirm the new version is live: `https://pypi.org/pypi/mermaid-term/json`
    should list it.
-8. Create a GitHub release: `gh release create v<version> --generate-notes`.
+9. Create a GitHub release: `gh release create v<version> --generate-notes`.
 
 ## If the workflow fails
 
