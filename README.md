@@ -4,6 +4,8 @@
 > This is a vibe-coded port: the Claude Fable 5 AI model translated the upstream
 > Rust module to Python with minimal human review. The ported test suite passes,
 > but read the code with that in mind.
+> [docs/porting-session.md](https://github.com/dmwyatt/mermaid-term/blob/main/docs/porting-session.md)
+> describes how the port was done and how fidelity was handled.
 
 Render [Mermaid](https://mermaid.js.org/) diagrams as Unicode box-drawing art
 in your terminal. No browser, no Node, no image files.
@@ -11,8 +13,6 @@ in your terminal. No browser, no Node, no image files.
 This is a Python port of the terminal Mermaid renderer from
 [xai-org/grok-build](https://github.com/xai-org/grok-build)
 (`crates/codegen/xai-grok-markdown/src/mermaid.rs`), including its test suite.
-[docs/porting-session.md](https://github.com/dmwyatt/mermaid-term/blob/main/docs/porting-session.md)
-describes how the port was done and how fidelity was handled.
 
 ![Terminal showing mermaid-term rendering a flowchart of Request, Valid?, Process, Reject, and Store nodes as Unicode box-drawing art](https://raw.githubusercontent.com/dmwyatt/mermaid-term/main/docs/demo.png)
 
