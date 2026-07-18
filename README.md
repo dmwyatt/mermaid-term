@@ -62,6 +62,9 @@ mermaid-term --color always diagram.mmd | less -R
   framed source with a hint.
 - `--color` is `auto` by default: ANSI styling on a terminal, plain text when
   piped. `NO_COLOR` is respected.
+- Lines a diagram parser cannot understand are skipped and reported on stderr
+  with their line numbers. `--strict` exits with status 1 when any diagram
+  contains unparseable lines.
 
 ## Library use
 

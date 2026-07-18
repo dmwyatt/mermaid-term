@@ -9,6 +9,7 @@ import shutil
 import sys
 from importlib.metadata import version
 
+from ._model import ParseIssue
 from ._render import MermaidArt, render
 from ._styles import MermaidStyles
 
@@ -23,13 +24,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"mermaid-term: {err}", file=sys.stderr)
         return 1
 
-    if args.markdown:
-        sources = extract_mermaid_blocks(text)
-        if not sources:
-            print("mermaid-term: no mermaid blocks found in input", file=sys.stderr)
-            return 1
-    else:
-        sources = [text]
+    blocks = _input_blocks(text, args.markdown)
+    if blocks is None:
+        return 1
 
     color = _resolve_color(args.color)
     width = _resolve_width(args.width)
@@ -37,16 +34,51 @@ def main(argv: list[str] | None = None) -> int:
     if color:
         _enable_windows_vt()
 
-    outputs: list[str] = []
-    for src in sources:
-        art = render(src, styles, width)
-        if art is not None:
-            outputs.append(_art_to_text(art, color))
+    outputs, saw_issues = _render_blocks(blocks, styles, width, color)
     if not outputs:
         print("mermaid-term: input is empty", file=sys.stderr)
         return 1
     print("\n\n".join(outputs))
-    return 0
+    return 1 if args.strict and saw_issues else 0
+
+
+def _input_blocks(text: str, markdown: bool) -> list[tuple[str, int]] | None:
+    if not markdown:
+        return [(text, 1)]
+    blocks = extract_mermaid_blocks(text)
+    if not blocks:
+        print("mermaid-term: no mermaid blocks found in input", file=sys.stderr)
+        return None
+    return blocks
+
+
+def _render_blocks(
+    blocks: list[tuple[str, int]],
+    styles: MermaidStyles,
+    width: int | None,
+    color: bool,
+) -> tuple[list[str], bool]:
+    outputs: list[str] = []
+    saw_issues = False
+    for src, start_line in blocks:
+        art = render(src, styles, width)
+        if art is None:
+            continue
+        outputs.append(_art_to_text(art, color))
+        if art.issues:
+            saw_issues = True
+            _warn_skipped(art.issues, start_line)
+    return (outputs, saw_issues)
+
+
+def _warn_skipped(issues: list[ParseIssue], start_line: int) -> None:
+    lines = sorted({start_line + issue.line - 1 for issue in issues})
+    noun = "line" if len(lines) == 1 else "lines"
+    listed = ", ".join(str(n) for n in lines)
+    print(
+        f"mermaid-term: skipped {len(lines)} unparseable {noun} ({listed})",
+        file=sys.stderr,
+    )
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -86,6 +118,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--markdown",
         action="store_true",
         help="treat input as Markdown and render every ```mermaid fence",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit with status 1 if any diagram contains unparseable lines",
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {version('mermaid-term')}"
@@ -142,9 +179,13 @@ def _art_to_text(art: MermaidArt, color: bool) -> str:
     return "\n".join(art.plain_lines)
 
 
-def extract_mermaid_blocks(text: str) -> list[str]:
-    """Collect the contents of every ``` / ~~~ mermaid fence in ``text``."""
-    blocks: list[str] = []
+def extract_mermaid_blocks(text: str) -> list[tuple[str, int]]:
+    """Collect every ``` / ~~~ mermaid fence in ``text``.
+
+    Returns ``(body, start_line)`` pairs, where ``start_line`` is the 1-based
+    line number in ``text`` of the first body line after the opening fence.
+    """
+    blocks: list[tuple[str, int]] = []
     lines = text.splitlines()
     i = 0
     while i < len(lines):
@@ -161,13 +202,14 @@ def extract_mermaid_blocks(text: str) -> list[str]:
             continue
         body: list[str] = []
         i += 1
+        start_line = i + 1
         while i < len(lines):
             inner = lines[i].lstrip()
             if inner.startswith(fence) and not inner[len(fence) :].strip():
                 break
             body.append(_dedent_by(lines[i], indent))
             i += 1
-        blocks.append("\n".join(body))
+        blocks.append(("\n".join(body), start_line))
         i += 1
     return blocks
 
