@@ -39,10 +39,11 @@ def _parse_state_statements(
             in_note = ":" not in st
             continue
         ok = _apply_state_statement(st, first, words, graph)
-        if graph.over_capacity():
+        if graph.over_cap:
             return False
         if not ok:
-            issues.append(ParseIssue(stmt.line, st))
+            if not graph.over_capacity():
+                issues.append(ParseIssue(stmt.line, st))
             return False
     return True
 

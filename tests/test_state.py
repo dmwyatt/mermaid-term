@@ -1,7 +1,7 @@
 """State diagram parsing and rendering."""
 
 from mermaid_term import render
-from mermaid_term._model import ParseIssue, Shape
+from mermaid_term._model import MAX_NODES, ParseIssue, Shape
 from mermaid_term._parse_state import parse_state
 
 from .util import plain, styles
@@ -116,6 +116,14 @@ def test_state_over_cap_reports_no_issues():
     art = render(src, styles(), 120)
     assert art is not None
     assert art.fallback is True
+    assert art.issues == []
+
+
+def test_state_exactly_at_node_cap_renders_normally():
+    src = "stateDiagram-v2\n" + "".join(f" S{i} --> S{i + 1}\n" for i in range(MAX_NODES - 1))
+    art = render(src, styles(), 200)
+    assert art is not None
+    assert art.fallback is False, "a diagram that exactly fills the node cap is still valid"
     assert art.issues == []
 
 
