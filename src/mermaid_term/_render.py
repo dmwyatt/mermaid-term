@@ -74,12 +74,11 @@ def _diagram_canvas(
     if graph is not None:
         return _oriented(_flowchart_canvas(graph, max_width), graph.dir)
 
-    parsed = parse_class(src, issues)
-    if parsed is None:
-        parsed = parse_er(src)
-    if parsed is not None:
-        graph, infos = parsed
-        return _oriented(_class_canvas(graph, infos, max_width), graph.dir)
+    for parser in (parse_class, parse_er):
+        parsed = parser(src, issues)
+        if parsed is not None:
+            graph, infos = parsed
+            return _oriented(_class_canvas(graph, infos, max_width), graph.dir)
 
     seq = parse_sequence(src)
     if seq is not None:
