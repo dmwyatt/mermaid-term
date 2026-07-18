@@ -100,6 +100,7 @@ def test_class_bad_statement_reports_issue_and_falls_back():
     art = render("classDiagram\n A --> B\n total garbage here\n", styles(), 120)
     assert art is not None
     assert art.fallback is True
+    assert art.rejected is True
     assert art.issues == [ParseIssue(3, "total garbage here")]
 
 

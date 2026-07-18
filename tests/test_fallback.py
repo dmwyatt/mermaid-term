@@ -92,6 +92,9 @@ def test_issues_survive_too_wide_fallback():
     assert art is not None
     assert "mermaid: flowchart" in "\n".join(art.plain_lines)
     assert [(i.line, i.text) for i in art.issues] == [(3, "D -->")]
+    assert art.rejected is False, (
+        "width, not the D --> line, caused this fallback; no parser rejected the diagram"
+    )
 
 
 def test_over_cap_fallback_reports_no_issues():
@@ -112,6 +115,7 @@ def test_unsupported_diagram_has_fallback_true():
     art = render("gantt\n title Plan\n section A\n task :a1, 2024-01-01, 30d", styles(), 120)
     assert art is not None
     assert art.fallback is True
+    assert art.rejected is False, "no parser matched this diagram type, so none rejected it"
 
 
 def test_parse_issue_is_exported_from_package():

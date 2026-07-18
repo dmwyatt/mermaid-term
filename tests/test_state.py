@@ -90,6 +90,7 @@ def test_state_bad_statement_reports_issue_and_falls_back():
     art = render("stateDiagram-v2\n A --> B\n some garbage line\n", styles(), 120)
     assert art is not None
     assert art.fallback is True
+    assert art.rejected is True
     assert art.issues == [ParseIssue(3, "some garbage line")]
 
 

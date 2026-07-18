@@ -23,15 +23,21 @@ from ._text import chunk_line, str_width, wrap_words
 class MermaidArt:
     """Rendered diagram: styled lines for ANSI output and plain text lines.
 
-    ``issues`` lists source statements the parser skipped, by 1-based line
+    ``issues`` lists statements the parser could not consume, by 1-based line
     number within the mermaid block. ``fallback`` is ``True`` when the
     diagram could not be laid out and the raw source is framed instead.
+    ``rejected`` is ``True`` when that framing happened because a parser
+    matched the diagram type but gave up on a statement, as opposed to e.g.
+    the diagram being too wide to lay out; it distinguishes "this line is why
+    you see source" from "you see source for an unrelated reason, but here
+    are the lines that were also skipped".
     """
 
     styled_lines: list[Line]
     plain_lines: list[str]
     issues: list[ParseIssue] = field(default_factory=list)
     fallback: bool = False
+    rejected: bool = False
 
 
 TOO_WIDE_HINT = (
@@ -53,7 +59,7 @@ def render(src: str, styles: MermaidStyles | None = None, max_width: int | None 
     except OversizeError as oversize:
         return _fallback(src, styles, max_width, oversize.kind == "width", issues)
     if canvas is None:
-        return _fallback(src, styles, max_width, False, issues)
+        return _fallback(src, styles, max_width, False, issues, rejected=bool(issues))
     styled_lines, plain_lines = canvas.to_lines(styles)
     return MermaidArt(styled_lines, plain_lines, issues)
 
@@ -116,6 +122,7 @@ def _fallback(
     max_width: int | None,
     too_wide: bool,
     issues: list[ParseIssue],
+    rejected: bool = False,
 ) -> MermaidArt:
     title = f" mermaid: {_first_word(src)} "
     limit = max(max_width - 4, 8) if max_width is not None else None
@@ -123,6 +130,7 @@ def _fallback(
     art = _framed_source(title, body, styles)
     art.issues = issues
     art.fallback = True
+    art.rejected = rejected
     if too_wide:
         _append_hint(art, styles, max_width)
     return art

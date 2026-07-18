@@ -111,6 +111,7 @@ def test_sequence_bad_statement_reports_issue_and_falls_back():
     art = render("sequenceDiagram\n A->>B: hi\n garbage statement here\n", styles(), 120)
     assert art is not None
     assert art.fallback is True
+    assert art.rejected is True
     assert art.issues == [ParseIssue(3, "garbage statement here")]
 
 

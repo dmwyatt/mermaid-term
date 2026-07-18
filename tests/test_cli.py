@@ -150,16 +150,40 @@ def test_unsupported_diagram_type_strict_exits_zero(monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_could_not_parse_message_for_fallback_with_issues(monkeypatch, capsys):
-    src = (
-        "flowchart LR\n"
-        " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
-        " D -->\n"
-    )
-    monkeypatch.setattr("sys.stdin", io.StringIO(src))
+OVERSIZE_WITH_DANGLING_LINK = (
+    "flowchart LR\n"
+    " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+    " D -->\n"
+)
+OVERSIZE_CLEAN = (
+    "flowchart LR\n"
+    " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+)
+
+
+def test_oversize_fallback_with_issues_uses_skipped_wording(monkeypatch, capsys):
+    # The fallback here is caused by width, not by the dangling "D -->" line;
+    # the warning must say what actually happened (a line was skipped), not
+    # claim that line caused the fallback.
+    monkeypatch.setattr("sys.stdin", io.StringIO(OVERSIZE_WITH_DANGLING_LINK))
     assert main(["--width", "40"]) == 0
-    err = capsys.readouterr().err
-    assert "mermaid-term: could not parse line 3; showing source" in err, err
+    captured = capsys.readouterr()
+    assert "skipped 1 unparseable line (3)" in captured.err, captured.err
+    assert "could not parse" not in captured.err, captured.err
+    assert "too wide" in captured.out, captured.out
+
+
+def test_oversize_fallback_with_issues_strict_exits_one(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(OVERSIZE_WITH_DANGLING_LINK))
+    assert main(["--width", "40", "--strict"]) == 1
+    captured = capsys.readouterr()
+    assert "skipped 1 unparseable line (3)" in captured.err, captured.err
+
+
+def test_oversize_fallback_without_issues_strict_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(OVERSIZE_CLEAN))
+    assert main(["--width", "40", "--strict"]) == 0
+    assert capsys.readouterr().err == ""
 
 
 def test_markdown_mode_reports_absolute_line_numbers(tmp_path, capsys):

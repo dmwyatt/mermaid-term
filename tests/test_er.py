@@ -85,6 +85,7 @@ def test_er_bad_statement_reports_issue_and_falls_back():
     art = render("erDiagram\n A ||--|| B : ok\n utter nonsense statement\n", styles(), 120)
     assert art is not None
     assert art.fallback is True
+    assert art.rejected is True
     assert art.issues == [ParseIssue(3, "utter nonsense statement")]
 
 

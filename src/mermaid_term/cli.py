@@ -72,7 +72,7 @@ def _render_blocks(
 
 
 def _warn_issues(art: MermaidArt, start_line: int) -> None:
-    if art.fallback:
+    if art.rejected:
         _warn_could_not_parse(art.issues, start_line)
     else:
         _warn_skipped(art.issues, start_line)
