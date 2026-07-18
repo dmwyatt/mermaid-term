@@ -118,6 +118,38 @@ def test_singular_warning_for_one_skipped_line(monkeypatch, capsys):
     assert "skipped 1 unparseable line (3)" in capsys.readouterr().err
 
 
+BAD_STATE = "stateDiagram-v2\n A --> B\n some garbage line\n"
+UNSUPPORTED = "pie\n title Pets\n \"Dogs\" : 60\n \"Cats\" : 40\n"
+
+
+def test_bad_state_diagram_warns_could_not_parse(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(BAD_STATE))
+    assert main([]) == 0
+    err = capsys.readouterr().err
+    assert "mermaid-term: could not parse line 3; showing source" in err, err
+
+
+def test_strict_exits_one_on_bad_state_diagram(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(BAD_STATE))
+    assert main(["--strict"]) == 1
+    err = capsys.readouterr().err
+    assert "could not parse line 3; showing source" in err, err
+
+
+def test_unsupported_diagram_type_has_no_warning(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(UNSUPPORTED))
+    assert main([]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "Pets" in captured.out
+
+
+def test_unsupported_diagram_type_strict_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(UNSUPPORTED))
+    assert main(["--strict"]) == 0
+    assert capsys.readouterr().err == ""
+
+
 def test_could_not_parse_message_for_fallback_with_issues(monkeypatch, capsys):
     src = (
         "flowchart LR\n"

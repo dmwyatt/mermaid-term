@@ -111,6 +111,10 @@ class Graph:
             return i
         return self.node_index(id, label, Shape.ROUND)
 
+    def over_capacity(self) -> bool:
+        """Whether a size cap has been reached, even if a caller forgot to set ``over_cap``."""
+        return self.over_cap or len(self.nodes) >= MAX_NODES or len(self.edges) >= MAX_EDGES
+
 
 @dataclass
 class ClassInfo:

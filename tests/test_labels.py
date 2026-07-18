@@ -132,7 +132,8 @@ def test_direct_push_sinks_decode_entities():
     # they reach a sink intact only inside quotes; assert through the real
     # parsers where such quoting works.
     g = parse_state(
-        'stateDiagram-v2\n  state "work &lt;job&gt;" as J\n  Idle --> Run: "on &lt;go&gt;"\n  Run: "d &lt;e&gt;"'
+        'stateDiagram-v2\n  state "work &lt;job&gt;" as J\n  Idle --> Run: "on &lt;go&gt;"\n  Run: "d &lt;e&gt;"',
+        [],
     )
     assert g is not None
 

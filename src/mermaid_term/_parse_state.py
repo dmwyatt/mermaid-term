@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from ._labels import decode_html_entities, non_empty, statements_of
-from ._model import MAX_EDGES, Dir, Edge, Graph, Head, LineKind, Shape, parse_dir
+from ._labels import Statement, decode_html_entities, non_empty, statements_of
+from ._model import MAX_EDGES, Dir, Edge, Graph, Head, LineKind, ParseIssue, Shape, parse_dir
 
 _SKIP_WORDS = frozenset(("classdef", "class", "hide", "scale", "}", "--"))
 
 
-def parse_state(src: str) -> Graph | None:
+def parse_state(src: str, issues: list[ParseIssue]) -> Graph | None:
     statements = statements_of(src)
     if not statements:
         return None
@@ -17,16 +17,19 @@ def parse_state(src: str) -> Graph | None:
         return None
 
     graph = Graph(dir=Dir.DOWN)
-    if not _parse_state_statements([s.text for s in statements[1:]], graph):
+    if not _parse_state_statements(statements[1:], graph, issues):
         return None
     if not graph.nodes:
         return None
     return graph
 
 
-def _parse_state_statements(statements: list[str], graph: Graph) -> bool:
+def _parse_state_statements(
+    statements: list[Statement], graph: Graph, issues: list[ParseIssue]
+) -> bool:
     in_note = False
-    for st in statements:
+    for stmt in statements:
+        st = stmt.text
         if in_note:
             in_note = st.lower() != "end note"
             continue
@@ -35,7 +38,11 @@ def _parse_state_statements(statements: list[str], graph: Graph) -> bool:
         if first == "note":
             in_note = ":" not in st
             continue
-        if not _apply_state_statement(st, first, words, graph) or graph.over_cap:
+        ok = _apply_state_statement(st, first, words, graph)
+        if graph.over_capacity():
+            return False
+        if not ok:
+            issues.append(ParseIssue(stmt.line, st))
             return False
     return True
 

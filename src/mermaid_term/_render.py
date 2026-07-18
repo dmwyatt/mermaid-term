@@ -70,7 +70,7 @@ def _diagram_canvas(
             canvas = _flowchart_canvas(graph, max_width)
         return _oriented(canvas, graph.dir)
 
-    graph = parse_state(src)
+    graph = parse_state(src, issues)
     if graph is not None:
         return _oriented(_flowchart_canvas(graph, max_width), graph.dir)
 
