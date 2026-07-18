@@ -67,8 +67,15 @@ def _render_blocks(
         outputs.append(_art_to_text(art, color))
         if art.issues:
             saw_issues = True
-            _warn_skipped(art.issues, start_line)
+            _warn_issues(art, start_line)
     return (outputs, saw_issues)
+
+
+def _warn_issues(art: MermaidArt, start_line: int) -> None:
+    if art.fallback:
+        _warn_could_not_parse(art.issues, start_line)
+    else:
+        _warn_skipped(art.issues, start_line)
 
 
 def _warn_skipped(issues: list[ParseIssue], start_line: int) -> None:
@@ -79,6 +86,15 @@ def _warn_skipped(issues: list[ParseIssue], start_line: int) -> None:
         f"mermaid-term: skipped {len(lines)} unparseable {noun} ({listed})",
         file=sys.stderr,
     )
+
+
+def _warn_could_not_parse(issues: list[ParseIssue], start_line: int) -> None:
+    lines = sorted({start_line + issue.line - 1 for issue in issues})
+    if len(lines) == 1:
+        where = f"line {lines[0]}"
+    else:
+        where = f"lines ({', '.join(str(n) for n in lines)})"
+    print(f"mermaid-term: could not parse {where}; showing source", file=sys.stderr)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

@@ -6,7 +6,8 @@ stateDiagram, classDiagram, erDiagram, and sequenceDiagram blocks; anything
 else renders as the raw source in a framed box.
 """
 
+from ._model import ParseIssue
 from ._render import MermaidArt, render
 from ._styles import Line, MermaidStyles, Span, Style
 
-__all__ = ["MermaidArt", "MermaidStyles", "Line", "Span", "Style", "render"]
+__all__ = ["MermaidArt", "MermaidStyles", "Line", "ParseIssue", "Span", "Style", "render"]

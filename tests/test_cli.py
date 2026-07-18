@@ -118,6 +118,18 @@ def test_singular_warning_for_one_skipped_line(monkeypatch, capsys):
     assert "skipped 1 unparseable line (3)" in capsys.readouterr().err
 
 
+def test_could_not_parse_message_for_fallback_with_issues(monkeypatch, capsys):
+    src = (
+        "flowchart LR\n"
+        " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+        " D -->\n"
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(src))
+    assert main(["--width", "40"]) == 0
+    err = capsys.readouterr().err
+    assert "mermaid-term: could not parse line 3; showing source" in err, err
+
+
 def test_markdown_mode_reports_absolute_line_numbers(tmp_path, capsys):
     md = tmp_path / "doc.md"
     md.write_text(

@@ -24,12 +24,14 @@ class MermaidArt:
     """Rendered diagram: styled lines for ANSI output and plain text lines.
 
     ``issues`` lists source statements the parser skipped, by 1-based line
-    number within the mermaid block.
+    number within the mermaid block. ``fallback`` is ``True`` when the
+    diagram could not be laid out and the raw source is framed instead.
     """
 
     styled_lines: list[Line]
     plain_lines: list[str]
     issues: list[ParseIssue] = field(default_factory=list)
+    fallback: bool = False
 
 
 TOO_WIDE_HINT = (
@@ -120,6 +122,7 @@ def _fallback(
     body = _fallback_body(src, limit)
     art = _framed_source(title, body, styles)
     art.issues = issues
+    art.fallback = True
     if too_wide:
         _append_hint(art, styles, max_width)
     return art
