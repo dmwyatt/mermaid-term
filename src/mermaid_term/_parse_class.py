@@ -17,6 +17,7 @@ from ._model import (
     Graph,
     Head,
     LineKind,
+    ParseIssue,
     Shape,
     parse_dir,
 )
@@ -48,11 +49,13 @@ def _has_space(s: str) -> bool:
     return any(c.isspace() for c in s)
 
 
-def parse_class(src: str) -> tuple[Graph, list[ClassInfo]] | None:
+def parse_class(
+    src: str, issues: list[ParseIssue]
+) -> tuple[Graph, list[ClassInfo]] | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or not header_tokens[0].lower().startswith("classdiagram"):
         return None
 
@@ -60,12 +63,15 @@ def parse_class(src: str) -> tuple[Graph, list[ClassInfo]] | None:
     infos: list[ClassInfo] = []
     cur_class: int | None = None
 
-    for st in statements[1:]:
+    for stmt in statements[1:]:
+        st = stmt.text
         if cur_class is not None:
             cur_class = _member_line(st, infos, cur_class)
             continue
         ok, cur_class = _apply_class_statement(st, graph, infos)
         if not ok:
+            if not graph.over_capacity():
+                issues.append(ParseIssue(stmt.line, st))
             return None
 
     if not graph.nodes:

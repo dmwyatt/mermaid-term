@@ -41,6 +41,18 @@ def test_merge_has_single_arrowhead():
     assert "▼▼" not in out, f"must not stack arrowheads:\n{out}"
 
 
+def test_render_attaches_flowchart_parse_issues():
+    art = render("graph TD\n A --> B\n C -->\n", styles(), 120)
+    assert art is not None
+    assert [(i.line, i.text) for i in art.issues] == [(3, "C -->")]
+
+
+def test_render_clean_diagram_has_no_issues():
+    art = render("graph TD\n A[Start] --> B[End]", styles(), 120)
+    assert art is not None
+    assert art.issues == []
+
+
 def test_long_label_wraps_without_truncation():
     out = plain("graph TD\n A[Check if the user has permission to access resource] --> B[Done]")
     assert "permission" in out, out

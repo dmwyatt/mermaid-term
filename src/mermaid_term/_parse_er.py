@@ -12,16 +12,17 @@ from ._model import (
     Graph,
     Head,
     LineKind,
+    ParseIssue,
     Shape,
 )
 from ._parse_class import sync_infos
 
 
-def parse_er(src: str) -> tuple[Graph, list[ClassInfo]] | None:
+def parse_er(src: str, issues: list[ParseIssue]) -> tuple[Graph, list[ClassInfo]] | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or header_tokens[0].lower() != "erdiagram":
         return None
 
@@ -29,12 +30,15 @@ def parse_er(src: str) -> tuple[Graph, list[ClassInfo]] | None:
     infos: list[ClassInfo] = []
     cur_entity: int | None = None
 
-    for st in statements[1:]:
+    for stmt in statements[1:]:
+        st = stmt.text
         if cur_entity is not None:
             cur_entity = _attribute_line(st, infos, cur_entity)
             continue
         ok, cur_entity = _apply_er_statement(st, graph, infos)
         if not ok:
+            if not graph.over_capacity():
+                issues.append(ParseIssue(stmt.line, st))
             return None
 
     if not graph.nodes:

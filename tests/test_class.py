@@ -1,9 +1,10 @@
 """Class diagram parsing and compartment rendering."""
 
-from mermaid_term._model import Head, LineKind
+from mermaid_term import render
+from mermaid_term._model import Head, LineKind, ParseIssue
 from mermaid_term._parse_class import parse_class
 
-from .util import plain
+from .util import plain, styles
 
 
 def test_class_renders_compartments():
@@ -33,7 +34,7 @@ def test_class_inheritance_triangle_at_parent():
 
 
 def test_class_realization_is_dotted_triangle():
-    parsed = parse_class("classDiagram\n IShape <|.. Circle")
+    parsed = parse_class("classDiagram\n IShape <|.. Circle", [])
     assert parsed is not None
     g = parsed[0]
     assert g.edges[0].head_from == Head.TRIANGLE
@@ -49,7 +50,7 @@ def test_class_composition_and_aggregation_diamonds():
 
 
 def test_class_dependency_dotted_arrow():
-    parsed = parse_class("classDiagram\n A ..> B")
+    parsed = parse_class("classDiagram\n A ..> B", [])
     assert parsed is not None
     g = parsed[0]
     assert g.edges[0].head_to == Head.ARROW
@@ -93,6 +94,34 @@ def test_class_empty_class_is_plain_titled_box():
 def test_class_unknown_statement_falls_back():
     out = plain("classDiagram\n A --> B\n total garbage here")
     assert "mermaid: classDiagram" in out, out
+
+
+def test_class_bad_statement_reports_issue_and_falls_back():
+    art = render("classDiagram\n A --> B\n total garbage here\n", styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.rejected is True
+    assert art.issues == [ParseIssue(3, "total garbage here")]
+
+
+def test_class_skip_words_record_no_issues():
+    art = render(
+        "classDiagram\n A --> B\n note \"a note\"\n click A call callback()\n"
+        ' style A fill:#bbf\n namespace ns {\n class C\n }\n',
+        styles(),
+        120,
+    )
+    assert art is not None
+    assert art.fallback is False
+    assert art.issues == []
+
+
+def test_class_over_cap_falls_back_with_no_issues():
+    src = "classDiagram\n" + "".join(f" C{i} --> C{i + 1}\n" for i in range(600))
+    art = render(src, styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.issues == []
 
 
 def test_class_member_cap_ellipsis():

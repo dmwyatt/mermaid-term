@@ -1,6 +1,6 @@
 """Flowchart/graph statement parsing: nodes, links, heads, fan-out."""
 
-from mermaid_term._model import Dir, Head
+from mermaid_term._model import Dir, Head, ParseIssue
 from mermaid_term._parse_flowchart import parse_graph
 
 
@@ -115,3 +115,75 @@ def test_subgraph_groupless_path_unchanged():
     g = parse_graph("graph TD\n A --> B")
     assert g is not None
     assert not g.groups
+
+
+def test_unparseable_statements_record_issues():
+    g = parse_graph("graph TD\n    A -->\n    --> B\n    {unclosed\n")
+    assert g is not None
+    assert g.issues == [
+        ParseIssue(2, "A -->"),
+        ParseIssue(3, "--> B"),
+        ParseIssue(4, "{unclosed"),
+    ]
+
+
+def test_dangling_link_keeps_partial_nodes():
+    g = parse_graph("graph TD\n A -->\n")
+    assert g is not None
+    assert "A" in g.index, "partial effects are not rolled back"
+    assert g.issues == [ParseIssue(2, "A -->")]
+
+
+def test_trailing_garbage_records_issue():
+    g = parse_graph("graph TD\n A foo\n B --> C\n")
+    assert g is not None
+    assert g.issues == [ParseIssue(2, "A foo")]
+    assert len(g.edges) == 1
+
+
+def test_clean_diagram_records_no_issues():
+    g = parse_graph("graph TD\n A[Start] --> B{Choice}\n B -->|yes| C\n B -->|no| D\n")
+    assert g is not None
+    assert g.issues == []
+
+
+def test_directives_and_subgraphs_record_no_issues():
+    src = (
+        "flowchart TD\n"
+        "  classDef hot fill:#f96\n"
+        "  style A fill:#bbf\n"
+        '  click A href "https://example.com"\n'
+        "  subgraph grp [Group]\n"
+        "    direction LR\n"
+        "    A --> B\n"
+        "  end\n"
+        "  class A hot\n"
+        "  linkStyle 0 stroke:red\n"
+        "  B --> C\n"
+    )
+    g = parse_graph(src)
+    assert g is not None
+    assert g.issues == []
+
+
+def test_class_shorthand_suffix_is_ignored():
+    g = parse_graph("graph TD\n A:::green --> B")
+    assert g is not None
+    assert len(g.nodes) == 2
+    assert len(g.edges) == 1
+    assert g.issues == []
+
+
+def test_class_shorthand_suffix_on_shaped_node_is_ignored():
+    g = parse_graph("graph TD\n A[Start]:::green --> B:::blue")
+    assert g is not None
+    assert len(g.nodes) == 2
+    assert len(g.edges) == 1
+    assert g.issues == []
+
+
+def test_class_shorthand_without_class_name_is_unparseable():
+    g = parse_graph("graph TD\n A::: --> B")
+    assert g is not None
+    assert len(g.issues) == 1
+    assert g.issues[0].text == "A::: --> B"

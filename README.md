@@ -62,6 +62,13 @@ mermaid-term --color always diagram.mmd | less -R
   framed source with a hint.
 - `--color` is `auto` by default: ANSI styling on a terminal, plain text when
   piped. `NO_COLOR` is respected.
+- In flowchart/graph diagrams, statements a parser cannot understand are
+  skipped and the rest of the diagram still renders; stderr reports how many
+  lines were skipped and their line numbers.
+- In stateDiagram, classDiagram, erDiagram, and sequenceDiagram, one
+  unparseable statement rejects the whole diagram, which falls back to framed
+  source; stderr reports which line could not be parsed. `--strict` exits
+  with status 1 in either case.
 
 ## Library use
 

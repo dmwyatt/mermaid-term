@@ -1,9 +1,10 @@
 """ER diagram parsing and rendering."""
 
-from mermaid_term._model import LineKind
+from mermaid_term import render
+from mermaid_term._model import LineKind, ParseIssue
 from mermaid_term._parse_er import parse_er, parse_er_op
 
-from .util import plain
+from .util import plain, styles
 
 
 def test_er_renders_entities_and_relationship_labels():
@@ -55,7 +56,7 @@ def test_er_entity_alias_label():
 
 
 def test_er_unquoted_label_and_bare_entity_decl():
-    parsed = parse_er("erDiagram\n LONER\n A ||--|| B : linked")
+    parsed = parse_er("erDiagram\n LONER\n A ||--|| B : linked", [])
     assert parsed is not None
     g = parsed[0]
     assert len(g.nodes) == 3
@@ -78,3 +79,31 @@ def test_er_attribute_cap_ellipsis():
 def test_er_unknown_statement_falls_back():
     out = plain("erDiagram\n A ||--|| B : ok\n utter nonsense statement")
     assert "mermaid: erDiagram" in out, out
+
+
+def test_er_bad_statement_reports_issue_and_falls_back():
+    art = render("erDiagram\n A ||--|| B : ok\n utter nonsense statement\n", styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.rejected is True
+    assert art.issues == [ParseIssue(3, "utter nonsense statement")]
+
+
+def test_er_entity_attribute_block_records_no_issues():
+    art = render(
+        'erDiagram\n CUSTOMER ||--o{ ORDER : places\n CUSTOMER {\n'
+        ' string name PK "full name"\n int custNumber\n }\n',
+        styles(),
+        120,
+    )
+    assert art is not None
+    assert art.fallback is False
+    assert art.issues == []
+
+
+def test_er_over_cap_falls_back_with_no_issues():
+    src = "erDiagram\n" + "".join(f" E{i} ||--|| E{i + 1} : r\n" for i in range(600))
+    art = render(src, styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.issues == []

@@ -1,6 +1,6 @@
 """Label cleaning: HTML tags, entities, markdown strings, quoting."""
 
-from mermaid_term._labels import decode_html_entities
+from mermaid_term._labels import Statement, decode_html_entities, statements_of
 from mermaid_term._model import ClassInfo
 from mermaid_term._parse_class import parse_class, push_member
 from mermaid_term._parse_er import push_er_attribute
@@ -9,6 +9,29 @@ from mermaid_term._parse_sequence import SeqDivider, SeqMessage, SeqNote, parse_
 from mermaid_term._parse_state import parse_state
 
 from .util import plain
+
+
+def test_statements_carry_their_source_line_numbers():
+    stmts = statements_of("graph TD\n  A --> B\n  B --> C\n")
+    assert stmts == [
+        Statement("graph TD", 1),
+        Statement("A --> B", 2),
+        Statement("B --> C", 3),
+    ]
+
+
+def test_semicolon_split_statements_share_one_line():
+    stmts = statements_of("graph TD\n A-->B; B-->C\n")
+    assert stmts == [
+        Statement("graph TD", 1),
+        Statement("A-->B", 2),
+        Statement("B-->C", 2),
+    ]
+
+
+def test_blank_and_comment_lines_advance_line_numbers():
+    src = "graph TD\n\n%% comment only\n A --> B %% trailing\n"
+    assert statements_of(src) == [Statement("graph TD", 1), Statement("A --> B", 4)]
 
 
 def test_html_tags_are_stripped_from_labels():
@@ -109,7 +132,8 @@ def test_direct_push_sinks_decode_entities():
     # they reach a sink intact only inside quotes; assert through the real
     # parsers where such quoting works.
     g = parse_state(
-        'stateDiagram-v2\n  state "work &lt;job&gt;" as J\n  Idle --> Run: "on &lt;go&gt;"\n  Run: "d &lt;e&gt;"'
+        'stateDiagram-v2\n  state "work &lt;job&gt;" as J\n  Idle --> Run: "on &lt;go&gt;"\n  Run: "d &lt;e&gt;"',
+        [],
     )
     assert g is not None
 
@@ -122,7 +146,7 @@ def test_direct_push_sinks_decode_entities():
     assert node("work <job>") and node("d <e>") and edge("on <go>")
     assert not node("&lt;") and not edge("&lt;")
 
-    parsed = parse_class('classDiagram\n  A --> B : "uses &lt;X&gt;"')
+    parsed = parse_class('classDiagram\n  A --> B : "uses &lt;X&gt;"', [])
     assert parsed is not None
     cg, _ = parsed
     assert any(
@@ -131,7 +155,8 @@ def test_direct_push_sinks_decode_entities():
     )
 
     s = parse_sequence(
-        'sequenceDiagram\n  A->>B: "call &lt;svc&gt;"\n  Note over A,B: "memo &lt;o&gt;"\n  alt "c &lt;x&gt;"\n    A->>B: ok\n  end'
+        'sequenceDiagram\n  A->>B: "call &lt;svc&gt;"\n  Note over A,B: "memo &lt;o&gt;"\n  alt "c &lt;x&gt;"\n    A->>B: ok\n  end',
+        [],
     )
     assert s is not None
     assert any(

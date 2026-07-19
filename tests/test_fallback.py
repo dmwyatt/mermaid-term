@@ -1,6 +1,7 @@
 """Fallback framing for unsupported, over-cap, and over-wide diagrams."""
 
-from mermaid_term import render
+from mermaid_term import ParseIssue, render
+from mermaid_term._model import ParseIssue as InternalParseIssue
 
 from .util import plain, str_width, styles
 
@@ -79,6 +80,46 @@ def test_fitting_diagram_has_no_width_warning():
     assert "too wide" not in out, f"fitting diagram must not warn:\n{out}"
     assert "mermaid: flowchart" not in out, f"should draw art, not box:\n{out}"
     assert "▶" in out, f"should draw edges:\n{out}"
+
+
+def test_issues_survive_too_wide_fallback():
+    src = (
+        "flowchart LR\n"
+        " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+        " D -->\n"
+    )
+    art = render(src, styles(), 40)
+    assert art is not None
+    assert "mermaid: flowchart" in "\n".join(art.plain_lines)
+    assert [(i.line, i.text) for i in art.issues] == [(3, "D -->")]
+    assert art.rejected is False, (
+        "width, not the D --> line, caused this fallback; no parser rejected the diagram"
+    )
+
+
+def test_over_cap_fallback_reports_no_issues():
+    src = "graph TD\n" + "".join(f" N{i} --> N{i + 1}\n" for i in range(10_000))
+    art = render(src, styles(), 120)
+    assert art is not None
+    assert "mermaid: graph" in "\n".join(art.plain_lines)
+    assert art.issues == []
+
+
+def test_normal_render_has_fallback_false():
+    art = render("graph TD\n A --> B", styles(), 120)
+    assert art is not None
+    assert art.fallback is False
+
+
+def test_unsupported_diagram_has_fallback_true():
+    art = render("gantt\n title Plan\n section A\n task :a1, 2024-01-01, 30d", styles(), 120)
+    assert art is not None
+    assert art.fallback is True
+    assert art.rejected is False, "no parser matched this diagram type, so none rejected it"
+
+
+def test_parse_issue_is_exported_from_package():
+    assert ParseIssue is InternalParseIssue
 
 
 def test_fallback_wraps_long_lines_to_max_width():

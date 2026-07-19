@@ -65,6 +65,18 @@ class Group:
     parent: int | None
 
 
+@dataclass(frozen=True)
+class ParseIssue:
+    """A statement the parser could not fully consume.
+
+    ``line`` is 1-based within the mermaid source block; ``text`` is the
+    offending statement.
+    """
+
+    line: int
+    text: str
+
+
 @dataclass
 class Graph:
     nodes: list[Node] = field(default_factory=list)
@@ -75,6 +87,7 @@ class Graph:
     cur_group: int | None = None
     over_cap: bool = False
     dir: Dir = Dir.DOWN
+    issues: list[ParseIssue] = field(default_factory=list)
 
     def node_index(self, id: str, label: str | None, shape: Shape) -> int | None:
         i = self.index.get(id)
@@ -97,6 +110,10 @@ class Graph:
             self.nodes[i].label = label
             return i
         return self.node_index(id, label, Shape.ROUND)
+
+    def over_capacity(self) -> bool:
+        """Whether a size cap has been reached, even if a caller forgot to set ``over_cap``."""
+        return self.over_cap or len(self.nodes) >= MAX_NODES or len(self.edges) >= MAX_EDGES
 
 
 @dataclass

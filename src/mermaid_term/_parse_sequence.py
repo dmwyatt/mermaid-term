@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from ._labels import clean_label, decode_html_entities, non_empty, statements_of
-from ._model import MAX_EDGES, MAX_NODES
+from ._model import MAX_EDGES, MAX_NODES, ParseIssue
 
 
 class SeqHead(Enum):
@@ -86,6 +86,9 @@ class Sequence:
         self.labels.append(label if label is not None else id)
         return len(self.labels) - 1
 
+    def over_capacity(self) -> bool:
+        return len(self.labels) >= MAX_NODES or len(self.items) >= MAX_EDGES
+
 
 _SKIPPED = frozenset(
     [
@@ -105,18 +108,20 @@ class _ParseState:
     blocks: list[bool] = field(default_factory=list)
 
 
-def parse_sequence(src: str) -> Sequence | None:
+def parse_sequence(src: str, issues: list[ParseIssue]) -> Sequence | None:
     statements = statements_of(src)
     if not statements:
         return None
-    header_tokens = statements[0].split()
+    header_tokens = statements[0].text.split()
     if not header_tokens or header_tokens[0].lower() != "sequencediagram":
         return None
 
     seq = Sequence()
     state = _ParseState()
-    for st in statements[1:]:
-        if not _apply_seq_statement(st, seq, state):
+    for stmt in statements[1:]:
+        if not _apply_seq_statement(stmt.text, seq, state):
+            if not seq.over_capacity():
+                issues.append(ParseIssue(stmt.line, stmt.text))
             return None
 
     if not seq.labels:

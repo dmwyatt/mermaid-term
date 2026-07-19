@@ -7,6 +7,7 @@ import pytest
 from mermaid_term.cli import extract_mermaid_blocks, main
 
 FLOW = "graph TD\n A[Start] --> B[End]\n"
+BROKEN = "graph TD\n    A -->\n    --> B\n    {unclosed\n"
 
 
 def test_renders_file(tmp_path, capsys):
@@ -89,13 +90,126 @@ def test_blank_input_errors(capsys, monkeypatch):
     assert "empty" in capsys.readouterr().err.lower()
 
 
+def test_warns_on_skipped_lines_and_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(BROKEN))
+    assert main([]) == 0
+    captured = capsys.readouterr()
+    assert "mermaid-term: skipped 3 unparseable lines (2, 3, 4)" in captured.err
+    assert "A" in captured.out, "lenient rendering still prints the diagram"
+
+
+def test_strict_exits_one_on_skipped_lines(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(BROKEN))
+    assert main(["--strict"]) == 1
+    captured = capsys.readouterr()
+    assert "skipped 3 unparseable lines (2, 3, 4)" in captured.err
+    assert "A" in captured.out, "output is still rendered before failing"
+
+
+def test_strict_clean_input_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(FLOW))
+    assert main(["--strict"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_singular_warning_for_one_skipped_line(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO("graph TD\n A[ok] --> B\n C -->\n"))
+    assert main([]) == 0
+    assert "skipped 1 unparseable line (3)" in capsys.readouterr().err
+
+
+BAD_STATE = "stateDiagram-v2\n A --> B\n some garbage line\n"
+UNSUPPORTED = "pie\n title Pets\n \"Dogs\" : 60\n \"Cats\" : 40\n"
+
+
+def test_bad_state_diagram_warns_could_not_parse(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(BAD_STATE))
+    assert main([]) == 0
+    err = capsys.readouterr().err
+    assert "mermaid-term: could not parse line 3; showing source" in err, err
+
+
+def test_strict_exits_one_on_bad_state_diagram(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(BAD_STATE))
+    assert main(["--strict"]) == 1
+    err = capsys.readouterr().err
+    assert "could not parse line 3; showing source" in err, err
+
+
+def test_unsupported_diagram_type_has_no_warning(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(UNSUPPORTED))
+    assert main([]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "Pets" in captured.out
+
+
+def test_unsupported_diagram_type_strict_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(UNSUPPORTED))
+    assert main(["--strict"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+OVERSIZE_WITH_DANGLING_LINK = (
+    "flowchart LR\n"
+    " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+    " D -->\n"
+)
+OVERSIZE_CLEAN = (
+    "flowchart LR\n"
+    " A[aaaaaaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccccccc]\n"
+)
+
+
+def test_oversize_fallback_with_issues_uses_skipped_wording(monkeypatch, capsys):
+    # The fallback here is caused by width, not by the dangling "D -->" line;
+    # the warning must say what actually happened (a line was skipped), not
+    # claim that line caused the fallback.
+    monkeypatch.setattr("sys.stdin", io.StringIO(OVERSIZE_WITH_DANGLING_LINK))
+    assert main(["--width", "40"]) == 0
+    captured = capsys.readouterr()
+    assert "skipped 1 unparseable line (3)" in captured.err, captured.err
+    assert "could not parse" not in captured.err, captured.err
+    assert "too wide" in captured.out, captured.out
+
+
+def test_oversize_fallback_with_issues_strict_exits_one(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(OVERSIZE_WITH_DANGLING_LINK))
+    assert main(["--width", "40", "--strict"]) == 1
+    captured = capsys.readouterr()
+    assert "skipped 1 unparseable line (3)" in captured.err, captured.err
+
+
+def test_oversize_fallback_without_issues_strict_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(OVERSIZE_CLEAN))
+    assert main(["--width", "40", "--strict"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_markdown_mode_reports_absolute_line_numbers(tmp_path, capsys):
+    md = tmp_path / "doc.md"
+    md.write_text(
+        "# Title\n\n```mermaid\ngraph TD\n A -->\n```\n\nprose\n\n"
+        "```mermaid\ngraph TD\n B[ok] --> C\n {bad\n```\n",
+        encoding="utf-8",
+    )
+    assert main(["--markdown", str(md)]) == 0
+    err = capsys.readouterr().err
+    assert "skipped 1 unparseable line (5)" in err, err
+    assert "skipped 1 unparseable line (13)" in err, err
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("```mermaid\ngraph TD\n A-->B\n```\n", ["graph TD\n A-->B"]),
-        ("~~~mermaid\ngraph TD\n A-->B\n~~~\n", ["graph TD\n A-->B"]),
-        ("```mermaid \ngraph LR\n A-->B\n```\nmore\n```py\nx=1\n```\n", ["graph LR\n A-->B"]),
-        ("  ```mermaid\n  graph TD\n  A-->B\n  ```\n", ["graph TD\nA-->B"]),
+        ("```mermaid\ngraph TD\n A-->B\n```\n", [("graph TD\n A-->B", 2)]),
+        ("~~~mermaid\ngraph TD\n A-->B\n~~~\n", [("graph TD\n A-->B", 2)]),
+        (
+            "```mermaid \ngraph LR\n A-->B\n```\nmore\n```py\nx=1\n```\n",
+            [("graph LR\n A-->B", 2)],
+        ),
+        ("  ```mermaid\n  graph TD\n  A-->B\n  ```\n", [("graph TD\nA-->B", 2)]),
+        ("intro\n\n```mermaid\ngraph TD\n A-->B\n```\n", [("graph TD\n A-->B", 4)]),
         ("no fences\n", []),
         ("```python\nprint()\n```\n", []),
     ],
